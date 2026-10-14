@@ -129,6 +129,19 @@ function todayMealHtml(key, meal, mealPlan, canCheckin) {
   const best = meal.best_time || meal.time || "--:--";
   const window = `${meal.window_start || "--:--"}–${meal.window_end || "--:--"}`;
   const note = meal.note ? `<p class="tiny muted">${escapeHtml(t(meal.note))}</p>` : "";
+  // 晚餐被"不想吃早餐"带着提前时，给一句说明：否则用户只看到时间变了却不知道为什么
+  const dinnerShift = Number(mealPlan?.dinner_shift_minutes) || 0;
+  const dinnerHint =
+    key === "dinner" && dinnerShift > 0
+      ? `<p class="tiny muted">${escapeHtml(tp("advice.meal.dinner_advanced", { shift: dinnerShift }))}</p>`
+      : "";
+  // "不想吃"只在早餐出现：它和"跳过"一样算没吃，但额外把今天的午餐与晚餐一起提前
+  const refusedBtn =
+    key === "breakfast"
+      ? `<button class="btn btn-sm checkin-btn${state === "refused" ? " active-refused" : ""}" data-meal="${key}" data-eaten="0" data-refused="1">${escapeHtml(
+          t("advice.meal.checkin.refused")
+        )}</button>`
+      : "";
   const checkin = canCheckin
     ? `<div class="checkin-row">
         <button class="btn btn-sm checkin-btn${state === "eaten" ? " active-ok" : ""}" data-meal="${key}" data-eaten="1">${escapeHtml(
@@ -137,6 +150,7 @@ function todayMealHtml(key, meal, mealPlan, canCheckin) {
         <button class="btn btn-sm checkin-btn${state === "skipped" ? " active-skip" : ""}" data-meal="${key}" data-eaten="0">${escapeHtml(
           t("advice.meal.checkin.skipped")
         )}</button>
+        ${refusedBtn}
         ${
           state === "unknown"
             ? `<span class="tiny muted">${escapeHtml(t("advice.meal.unknown"))}</span>`
@@ -159,6 +173,7 @@ function todayMealHtml(key, meal, mealPlan, canCheckin) {
       <strong class="mono">${escapeHtml(window)}</strong>
     </div>
     ${note}
+    ${dinnerHint}
     ${checkin}
   </div>`;
 }
@@ -564,12 +579,13 @@ function formHtml(collapsed) {
     <div class="field" id="days-field">
       <label>${escapeHtml(t("advice.days"))} <span class="mono" id="days-value"></span></label>
       <input type="range" id="days-range" min="2" max="30" step="1" />
-      <div class="row-wrap">
+      <div class="row-wrap" id="days-presets">
         <button type="button" class="btn btn-sm btn-ghost" data-days="3">3</button>
         <button type="button" class="btn btn-sm btn-ghost" data-days="7">7</button>
         <button type="button" class="btn btn-sm btn-ghost" data-days="14">14</button>
         <button type="button" class="btn btn-sm btn-ghost" data-days="30">30</button>
       </div>
+      <span class="tiny muted" id="days-locked"></span>
     </div>
 
     <div class="field">
@@ -611,12 +627,27 @@ function syncForm(root, { collapse } = {}) {
     btn.classList.toggle("active", btn.dataset.mode === form.mode);
   });
 
+  // 天数：快速调整固定只算今天 1 天（后端直接忽略 days），所以不藏控件而是说明清楚，
+  // 否则用户只看到"选不了天数"却不知道原因
   const daysField = qs("#days-field", box);
-  if (daysField) daysField.classList.toggle("hidden", form.mode !== "slow");
+  const locked = form.mode !== "slow";
+  if (daysField) {
+    qs("#days-range", daysField)?.classList.toggle("hidden", locked);
+    qs("#days-presets", daysField)?.classList.toggle("hidden", locked);
+    const lockedNote = qs("#days-locked", daysField);
+    if (lockedNote) {
+      lockedNote.classList.toggle("hidden", !locked);
+      lockedNote.textContent = locked ? t("advice.daysLocked") : "";
+    }
+  }
   const range = qs("#days-range", box);
   if (range) range.value = String(form.days);
   const daysValue = qs("#days-value", box);
-  if (daysValue) daysValue.textContent = t("advice.daysValue", { n: form.days });
+  if (daysValue) {
+    daysValue.textContent = locked
+      ? t("advice.daysValue", { n: 1 })
+      : t("advice.daysValue", { n: form.days });
+  }
 
   const useTarget = qs("#use-target", box);
   if (useTarget) {
@@ -757,17 +788,32 @@ async function generate(root) {
   }
 }
 
-/** 三餐一键确认：只用响应里的 meal_plan 重画三餐区，不重新拉整页 */
+/** 打卡响应里带着重算过的今天：就地合并，避免为一次打卡重拉整页 */
+function mergeCheckinState(body) {
+  const state = view.state;
+  if (!state || !body) return;
+  if (body.meal_plan) state.meal_plan = body.meal_plan;
+  if (!body.today) return;
+  state.today = body.today;
+  if (body.timeline) state.timeline = body.timeline;
+  // 方案列表第一行就是今天：按日期把同一天替换掉，两处时间才不会打架
+  const days = state.plan?.plan || [];
+  const index = days.findIndex((day) => day.date === body.today.date);
+  if (index >= 0) days[index] = { ...days[index], ...body.today };
+}
+
+/** 三餐一键确认：用响应里的今天 + 三餐统计就地重画，不重新拉整页 */
 async function checkin(root, btn) {
   if (view.pending) return;
   const meal = btn.dataset.meal;
   const eaten = btn.dataset.eaten === "1";
+  const refused = btn.dataset.refused === "1";
   const date = view.state?.today?.date || view.options?.today || null;
   view.pending = true;
   btn.disabled = true;
   try {
-    const body = await adviceApi.checkin({ meal, eaten, date });
-    if (view.state) view.state.meal_plan = body.meal_plan || view.state.meal_plan;
+    const body = await adviceApi.checkin({ meal, eaten, date, refused });
+    mergeCheckinState(body);
     renderPlanView(root);
     toastOk(t("advice.meal.checkin.saved"));
   } catch (err) {

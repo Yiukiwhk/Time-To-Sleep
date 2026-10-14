@@ -156,7 +156,7 @@ sleep-schedule/
 ## 测试与自检
 
 ```bash
-# 后端接口冒烟（进程内 TestClient，独立临时库）+ 算法引擎单元测试（12 项）
+# 后端接口冒烟（进程内 TestClient，独立临时库）+ 算法引擎单元测试（14 项）
 backend/.venv/Scripts/python.exe tests/smoke_test.py
 backend/.venv/Scripts/python.exe -m pytest tests/test_advice_engine.py -q
 # 真实服务端到端（需先启动服务）+ 静态资源与路由冒烟

@@ -117,8 +117,16 @@ def test_advice_shape_and_windows(client: TestClient) -> None:
         assert meals["breakfast"]["best_time"] == advice_service.format_hhmm(
             (wake + 15) % advice_service.DAY
         )
-        lunch = parse_hhmm(meals["lunch"]["best_time"]) - wake
-        assert 120 <= lunch % advice_service.DAY <= 300
+        # 午餐 = 早餐与晚餐的中点，再夹进 [起床+2h, 晚餐-4h]（跨零点的作息要先摊到
+        # 同一条不折返的轴上，否则"睡前 3.5 小时"会算到负数上）
+        span_sleep = sleep + advice_service.DAY if sleep <= wake else sleep
+        dinner_best = span_sleep - 210
+        lunch_mid = int(round((wake + 15 + dinner_best) / 2))
+        expect_lunch = max(
+            wake + 120, min(lunch_mid, dinner_best - advice_service.LUNCH_TO_DINNER_MIN)
+        )
+        assert parse_hhmm(meals["lunch"]["best_time"]) == expect_lunch % advice_service.DAY
+        assert meals["lunch"]["anchor"] == "both"
         dinner = (sleep - parse_hhmm(meals["dinner"]["best_time"])) % advice_service.DAY
         assert dinner == 210
         assert meals["dinner"]["window_start"] == advice_service.format_hhmm((sleep - 210) % advice_service.DAY)
@@ -228,8 +236,12 @@ def test_lunch_shifts_earlier_when_breakfast_skipped(client: TestClient) -> None
     assert shifted["meal_plan"]["lunch_shift_minutes"] == 120
     day = shifted["plan"][0]
     wake = parse_hhmm(day["wake_time"])
-    lunch = (parse_hhmm(day["meals"]["lunch"]["best_time"]) - wake) % advice_service.DAY
-    assert lunch == advice_service.LUNCH_FLOOR_AFTER_WAKE == 120
+    shifted_lunch = parse_hhmm(day["meals"]["lunch"]["best_time"])
+    # 前移量精确等于阶梯值：午餐整体往前挪 120 分钟，且不会被"起床后 2 小时"的下限
+    # 吃掉（旧口径午餐锚在起床+3h，前移 120 分钟后正好卡在下限上，掩盖了真实位移）
+    base_lunch = parse_hhmm(base["plan"][0]["meals"]["lunch"]["best_time"])
+    assert (base_lunch - shifted_lunch) % advice_service.DAY == 120
+    assert (shifted_lunch - wake) % advice_service.DAY >= advice_service.LUNCH_FLOOR_AFTER_WAKE
     assert day["meals"]["lunch"]["shifted_minutes"] == 120
     assert any(
         notice["code"] == "advice.notice.lunch_advanced" for notice in shifted["notices"]
@@ -248,6 +260,29 @@ def test_lunch_shifts_earlier_when_breakfast_skipped(client: TestClient) -> None
     assert record is not None and record.meal_breakfast is False
 
 
+def test_lunch_midpoint_keeps_gaps_reasonable_on_long_days(client: TestClient) -> None:
+    """晚睡早起（白天 19 小时）不该出现"午到晚"十几个小时的间隔。
+
+    旧口径把午餐锚在"起床 + 3 小时"：06:00 起 / 01:00 睡的人午餐 09:00、晚餐 21:30，
+    间隔 12.5 小时。现在午餐取早餐与晚餐的中点，同一作息的间隔收敛到 7.6 小时。
+    """
+    username = "longday"
+    _make_user(username, rows=_records_pattern("01:00", "06:00"), target=("23:00", "07:00"))
+    _login(client, username)
+
+    body = client.post("/api/advice", json={"mode": "slow", "days": 3}).json()
+    meals = body["today"]["meals"]
+    breakfast = parse_hhmm(meals["breakfast"]["best_time"])
+    lunch = parse_hhmm(meals["lunch"]["best_time"])
+    dinner = parse_hhmm(meals["dinner"]["best_time"])
+
+    to_dinner = (dinner - lunch) % advice_service.DAY
+    assert advice_service.LUNCH_TO_DINNER_MIN <= to_dinner <= 8 * 60, to_dinner
+    assert (lunch - breakfast) % advice_service.DAY >= 4 * 60      # 早餐到午餐也别挤在一起
+    assert (dinner - breakfast) % advice_service.DAY >= 8 * 60     # 早餐到晚餐至少 8 小时
+    assert meals["lunch"]["anchor"] == "both"
+
+
 def test_checkin_eaten_true_writes_back(client: TestClient) -> None:
     username = "mealeaten"
     _make_user(username, rows=_records_pattern("23:30", "07:30"), target=("23:00", "07:00"))
@@ -257,6 +292,74 @@ def test_checkin_eaten_true_writes_back(client: TestClient) -> None:
     ).json()
     assert body["ok"] is True and body["date"] == TODAY.isoformat()
     assert body["meal_plan"]["recent"][-1]["meals"]["dinner"]["state"] == "eaten"
+
+
+def test_refused_breakfast_pulls_today_meals_earlier(client: TestClient) -> None:
+    """早餐"不想吃"：算作没吃早餐，并把**今天**的午餐与晚餐各提前 60 分钟。
+
+    只影响今天这一格（未来的计划日照旧），而且点"已吃"要能撤销；
+    重新读计划时今天卡片与方案列表的第一行必须是同一份时间。
+    """
+    username = "refused"
+    _make_user(username, rows=_records_pattern("00:30", "08:30"), target=("23:00", "07:00"))
+    _login(client, username)
+
+    base = client.post("/api/advice", json={"mode": "slow", "days": 3}).json()
+    base_lunch = parse_hhmm(base["today"]["meals"]["lunch"]["best_time"])
+    base_dinner = parse_hhmm(base["today"]["meals"]["dinner"]["best_time"])
+    tomorrow_dinner = parse_hhmm(base["plan"][1]["meals"]["dinner"]["best_time"])
+    assert base["meal_plan"]["refused_breakfast_today"] is False
+
+    body = client.post(
+        "/api/advice/checkin",
+        json={"meal": "breakfast", "eaten": False, "refused": True},
+    ).json()
+    assert body["refused"] is True
+    assert body["meal_plan"]["refused_breakfast_today"] is True
+    assert body["meal_plan"]["dinner_shift_minutes"] == advice_service.REFUSED_BREAKFAST_SHIFT
+    assert body["meal_plan"]["recent"][-1]["meals"]["breakfast"]["state"] == "refused"
+    # 打卡响应直接带回重算后的今天 + 时间图，前端不需要再拉一次整页
+    assert body["today"] is not None and body["timeline"] is not None
+    lunch = parse_hhmm(body["today"]["meals"]["lunch"]["best_time"])
+    dinner = parse_hhmm(body["today"]["meals"]["dinner"]["best_time"])
+    # 晚餐：精确提前 60 分钟；午餐：先按"没吃早餐"的阶梯前移 60 分钟，
+    # 又因为午餐取的是"早餐~晚餐"的中点，而晚餐也提前了 60 → 中点再跟着走 30 分钟
+    assert (base_dinner - dinner) % advice_service.DAY == advice_service.REFUSED_BREAKFAST_SHIFT
+    lunch_moved = (base_lunch - lunch) % advice_service.DAY
+    assert advice_service.REFUSED_BREAKFAST_SHIFT <= lunch_moved <= advice_service.LUNCH_ADVANCE_LADDER[-1]
+    assert body["today"]["meals"]["dinner"]["shifted_minutes"] == advice_service.REFUSED_BREAKFAST_SHIFT
+    # 提前之后"午→晚"的间隔仍要落在合理区间里（这也是当初改取中点的原因）
+    gap = (dinner - lunch) % advice_service.DAY
+    assert advice_service.LUNCH_TO_DINNER_MIN <= gap <= 8 * 60, gap
+
+    # 重新读计划：叠加是"读取时"做的，方案列表第一行（同一天）必须和今天卡片一致
+    state = client.get("/api/advice/plan").json()
+    row = next(day for day in state["plan"]["plan"] if day["date"] == TODAY.isoformat())
+    assert row["meals"]["dinner"]["best_time"] == state["today"]["meals"]["dinner"]["best_time"]
+    assert row["meals"]["lunch"]["best_time"] == state["today"]["meals"]["lunch"]["best_time"]
+    # 未来的计划日不受今天"不想吃"的影响
+    future = next(
+        day
+        for day in state["plan"]["plan"]
+        if day["date"] == (TODAY + timedelta(days=1)).isoformat()
+    )
+    assert parse_hhmm(future["meals"]["dinner"]["best_time"]) == tomorrow_dinner
+
+    # 点"已吃"撤销：今天的三餐回到原样
+    undone = client.post(
+        "/api/advice/checkin", json={"meal": "breakfast", "eaten": True}
+    ).json()
+    assert undone["meal_plan"]["refused_breakfast_today"] is False
+    assert undone["meal_plan"]["dinner_shift_minutes"] == 0
+    assert parse_hhmm(undone["today"]["meals"]["lunch"]["best_time"]) == base_lunch
+    assert parse_hhmm(undone["today"]["meals"]["dinner"]["best_time"]) == base_dinner
+
+    # "不想吃"只对早餐有意义：午餐传 refused 要按普通"没吃"处理
+    other = client.post(
+        "/api/advice/checkin", json={"meal": "lunch", "eaten": False, "refused": True}
+    ).json()
+    assert other["refused"] is False
+    assert other["meal_plan"]["refused_breakfast_today"] is False
 
 
 # --------------------------------------------------------------------------- #

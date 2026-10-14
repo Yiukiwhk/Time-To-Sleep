@@ -131,11 +131,15 @@ class SleepRecord(Base, TimestampMixin):
 
 
 class MealCheck(Base, TimestampMixin):
-    """三餐实际执行情况（建议页"已吃 / 跳过"一键确认）。
+    """三餐实际执行情况（建议页"已吃 / 跳过 / 不想吃"一键确认）。
 
     sleep_records.meal_* 是记录页填写的旧字段；算法读取时对同一天取 updated_at
     较新的一方，因此这里既能补充"还没有睡眠记录的那些天"，也不会覆盖用户在
     记录页的修改。
+
+    refused 是"不想吃"这个更强的状态（记录页只有勾/不勾两态，表达不了它）：
+    早餐 refused 时算法会把今天的午餐与晚餐都往前挪，见 services/advice.py 的
+    `_meal_times`。它和 eaten 互斥——点"不想吃"必然意味着没吃。
     """
 
     __tablename__ = "meal_checks"
@@ -147,6 +151,7 @@ class MealCheck(Base, TimestampMixin):
     check_date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)  # YYYY-MM-DD
     meal: Mapped[str] = mapped_column(String(16), nullable=False)   # breakfast | lunch | dinner
     eaten: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    refused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 不想吃
 
     user: Mapped["User"] = relationship(back_populates="meal_checks")
 

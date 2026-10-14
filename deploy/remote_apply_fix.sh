@@ -226,6 +226,10 @@ case "$schema" in
     *meal_checks*) echo "  ok   meal_checks table present" ;;
     *) echo "  FAIL meal_checks table missing"; fail=$((fail + 1)) ;;
 esac
+case "$schema" in
+    *'"meal_checks_has_refused": true'*) echo "  ok   meal_checks.refused present" ;;
+    *) echo "  FAIL meal_checks.refused missing"; fail=$((fail + 1)) ;;
+esac
 
 echo
 if [ "$fail" -eq 0 ]; then

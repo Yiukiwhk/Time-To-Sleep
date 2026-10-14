@@ -30,9 +30,15 @@ router = APIRouter(tags=["advice"])
 def _meal_plan_state(db, user: User, today: date) -> dict:
     history = advice_service.meal_history(db, user.id, today=today)
     streak = advice_service.breakfast_skipped_streak(history, today=today)
+    refused = advice_service.refused_breakfast_today(history, today=today)
     return {
         "breakfast_skipped_streak": streak,
         "lunch_shift_minutes": advice_service.lunch_shift_minutes(streak),
+        # "不想吃"：今天这一天额外把晚餐也往前挪的分钟数（前端用它加提示）
+        "refused_breakfast_today": refused,
+        "dinner_shift_minutes": (
+            advice_service.REFUSED_BREAKFAST_SHIFT if refused else 0
+        ),
         "history": history["summary"],
         "recent": history["days"][-advice_service.MEAL_HISTORY_DAYS :],
     }
@@ -86,6 +92,19 @@ def _state(db, user: User, *, today: date, with_auto: bool = True) -> dict:
             auto_recomputed = True
             dev = plan_service.deviation(payload, records, today)
 
+    # 今天早餐"不想吃"是读取时的临时叠加（只改今天这一天，不重写快照）：
+    # 必须在 day_for 之前应用到 payload 上，今天卡片与方案列表第一行才会一致。
+    # 注意这里用**实时**算出来的 meal_plan，而不是快照里那份：连续天数与"不想吃"
+    # 都是"今天"的事实，快照里的那份是生成计划那一刻的旧值（打卡后刷新页面会看不见变化）
+    meal_plan = _meal_plan_state(db, user, today)
+    if meal_plan.get("refused_breakfast_today"):
+        payload = advice_service.apply_refused_breakfast_overlay(
+            payload,
+            today=today,
+            lunch_shift=int(meal_plan.get("lunch_shift_minutes") or 0),
+            refused=True,
+        )
+
     day = advice_service.day_for(payload.get("plan") or [], today)
     return {
         "has_plan": True,
@@ -94,7 +113,7 @@ def _state(db, user: User, *, today: date, with_auto: bool = True) -> dict:
         "timeline": (day or {}).get("timeline"),
         "deviation": dev,
         "adherence": plan_service.adherence(payload, records, today),
-        "meal_plan": payload.get("meal_plan") or _meal_plan_state(db, user, today),
+        "meal_plan": meal_plan,
         "plan_meta": {
             **(payload.get("plan_meta") or {}),
             "saved": True,
@@ -158,19 +177,32 @@ def advice_checkin(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    """建议页三餐卡片的"已吃 / 跳过"一键确认（写回当天记录）。"""
+    """建议页三餐卡片的"已吃 / 跳过 / 不想吃"一键确认（写回当天记录）。"""
     today = date.today()
     the_date = _check_record_date(payload.date) if payload.date else today.isoformat()
+    # "不想吃"只对早餐有意义（前端也只在早餐卡片给这个按钮），这里再兜一层：
+    # 其它两餐即使传了 True 也按普通的"没吃"处理，免得悄悄改变午餐/晚餐的语义
+    refused = bool(payload.refused) and payload.meal == "breakfast"
     plan_service.checkin(
-        user.id, check_date=the_date, meal=payload.meal, eaten=payload.eaten
+        user.id,
+        check_date=the_date,
+        meal=payload.meal,
+        eaten=payload.eaten,
+        refused=refused,
     )
     db.expire_all()
+    # 打卡之后"今天"这一天可能整体变了（不想吃会把午餐与晚餐一起提前），
+    # 所以顺手把重算过的今天与时间图一起回给前端：前端只重画，不用再拉一次整页
+    state = _state(db, user, today=today, with_auto=False)
     return {
         "ok": True,
         "date": the_date,
         "meal": payload.meal,
         "eaten": payload.eaten,
-        "meal_plan": _meal_plan_state(db, user, today),
+        "refused": refused,
+        "meal_plan": state["meal_plan"],
+        "today": state["today"],
+        "timeline": state["timeline"],
     }
 
 

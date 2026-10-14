@@ -103,8 +103,15 @@ def ack_notice(user_id: int, code: str) -> list[str]:
     return run_with_retry(_write, label="ack_advice_notice")
 
 
-def checkin(user_id: int, *, check_date: str, meal: str, eaten: bool) -> None:
-    """建议页"已吃 / 跳过"一键确认：写入 meal_checks，并同步当天睡眠记录。"""
+def checkin(
+    user_id: int, *, check_date: str, meal: str, eaten: bool, refused: bool = False
+) -> None:
+    """建议页"已吃 / 跳过 / 不想吃"一键确认：写入 meal_checks，并同步当天睡眠记录。
+
+    refused 只在"早餐不想吃"时传 True：它必然意味着没吃（eaten=False），并且会让
+    今天的午餐与晚餐都提前（见 services/advice.py 的 `_meal_times`）。点"已吃"或
+    "跳过"会把 refused 清掉，避免旧状态残留。
+    """
 
     def _write() -> None:
         with write_session() as session:
@@ -122,11 +129,16 @@ def checkin(user_id: int, *, check_date: str, meal: str, eaten: bool) -> None:
             if row is None:
                 session.add(
                     MealCheck(
-                        user_id=user_id, check_date=check_date, meal=meal, eaten=eaten
+                        user_id=user_id,
+                        check_date=check_date,
+                        meal=meal,
+                        eaten=eaten,
+                        refused=refused,
                     )
                 )
             else:
                 row.eaten = eaten
+                row.refused = refused
                 row.updated_at = utcnow()
             record = (
                 session.execute(

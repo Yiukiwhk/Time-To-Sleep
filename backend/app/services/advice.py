@@ -36,11 +36,13 @@ ENGINE = "adaptive-v2"
 # 三餐：相对起床/入睡的窗口（分钟）
 # --------------------------------------------------------------------------- #
 BREAKFAST_AFTER_WAKE = (15, 30)          # 起床后 15~30 分钟，最佳取窗口起点
-LUNCH_AFTER_WAKE = (3 * 60, 5 * 60)      # 起床后 3~5 小时
+LUNCH_AFTER_WAKE = (3 * 60, 5 * 60)      # 午餐窗口长度 2 小时（窗口起点不再锚在起床，见 _meal_times）
 DINNER_BEFORE_SLEEP = (2 * 60, 210)      # 睡前 2~3.5 小时，最佳 3.5 小时
+LUNCH_TO_DINNER_MIN = 4 * 60             # 午餐至少早于晚餐 4 小时，别把两餐挤在一起
 MEAL_BAR_MINUTES = {"breakfast": 30, "lunch": 60, "dinner": 60}   # 时间图条长（仅视觉）
-LUNCH_ADVANCE_LADDER = (60, 90, 120)     # 连续未吃早餐第 1/2/3+ 天的前移量
+LUNCH_ADVANCE_LADDER = (60, 90, 120)     # 连续未吃早餐第 1/2/3+ 天的午餐前移量
 LUNCH_FLOOR_AFTER_WAKE = 120             # 午餐不早于起床后 2 小时
+REFUSED_BREAKFAST_SHIFT = 60             # 早餐"不想吃"：今天的午餐与晚餐各提前的固定分钟数
 MEAL_KEYS = ("breakfast", "lunch", "dinner")
 
 # --------------------------------------------------------------------------- #
@@ -83,14 +85,22 @@ def _recent_records(db, user_id: int, limit_days: int = DEFAULT_HISTORY_DAYS) ->
 
 
 def _meal_state(meal: str, day: str, record: SleepRecord | None, checks: dict) -> dict:
-    """单日单餐的执行情况：优先取"较新的一方"（一键确认 vs 记录页勾选）。"""
+    """单日单餐的执行情况：优先取"较新的一方"（一键确认 vs 记录页勾选）。
+
+    三种状态：eaten 已吃、skipped 跳过、refused 不想吃。refused 只在"一键确认"
+    那条路上产生（记录页只有勾/不勾两态），表示用户明确拒绝这一餐 —— 它比 skipped
+    更强：早餐 refused 会同时把今天的午餐与晚餐往前挪（见 `_meal_times`）。
+    """
     check = checks.get((day, meal))
     if check is not None and record is not None:
         use_check = (check.updated_at or utcnow()) >= (record.updated_at or utcnow())
     else:
         use_check = check is not None
     if use_check:
-        return {"state": "eaten" if check.eaten else "skipped", "source": "checkin"}
+        state = "refused" if getattr(check, "refused", False) else (
+            "eaten" if check.eaten else "skipped"
+        )
+        return {"state": state, "source": "checkin"}
     if record is not None:
         value = bool(getattr(record, f"meal_{meal}", True))
         return {"state": "eaten" if value else "skipped", "source": "record"}
@@ -140,7 +150,7 @@ def meal_history(
     summary = {
         meal: {
             state: sum(1 for item in items if item["meals"][meal]["state"] == state)
-            for state in ("eaten", "skipped", "unknown")
+            for state in ("eaten", "skipped", "refused", "unknown")
         }
         for meal in MEAL_KEYS
     }
@@ -148,24 +158,34 @@ def meal_history(
 
 
 def breakfast_skipped_streak(history: dict, *, today: date | None = None) -> int:
-    """连续未吃早餐的天数。
+    """连续未吃早餐的天数（skipped 跳过与 refused 不想吃都算"没吃"）。
 
     今天单独处理：今天的早餐通常还没到/还没确认，而记录页的勾选默认是"已吃"，
-    所以今天只有被明确标成"跳过"才计入，否则一律不打断（避免上午就误判）。
+    所以今天只有被明确标成"跳过/不想吃"才计入，否则一律不打断（避免上午就误判）。
     """
     today_iso = (today or date.today()).isoformat()
     streak = 0
     for index, item in enumerate(sorted(history["days"], key=lambda d: d["date"], reverse=True)):
         state = item["meals"]["breakfast"]["state"]
+        missed = state in ("skipped", "refused")
         if index == 0 and item["date"] == today_iso:
-            if state == "skipped":
+            if missed:
                 streak += 1
             continue
-        if state == "skipped":
+        if missed:
             streak += 1
             continue
         break
     return streak
+
+
+def refused_breakfast_today(history: dict, *, today: date | None = None) -> bool:
+    """今天的早餐是不是被明确标成了"不想吃"（只有它会把今天的晚餐也往前挪）。"""
+    today_iso = (today or date.today()).isoformat()
+    for item in history["days"]:
+        if item["date"] == today_iso:
+            return item["meals"]["breakfast"]["state"] == "refused"
+    return False
 
 
 def lunch_shift_minutes(streak: int) -> int:
@@ -423,21 +443,46 @@ def _meal_times(
     enabled: dict[str, bool],
     *,
     lunch_shift: int = 0,
+    refused_breakfast: bool = False,
 ) -> dict[str, dict]:
-    """三餐推荐时间：窗口按当天的起床/入睡自适应，最佳时间取窗口起点。"""
+    """三餐推荐时间：早餐锚起床、晚餐锚入睡，午餐取两者的中点。
+
+    早先午餐锚在"起床 + 3 小时"，白天越长（例如 06:00 起、01:00 睡）午餐与晚餐
+    之间就拉得越开 —— 实测能到 12.5 小时，对晚睡早起的人明显不合理。改成取
+    早餐与晚餐的中点后，同一作息的间隔收敛到 7.6 小时；短白天的人（07:00 起、
+    23:00 睡）则从 9.5 小时收敛到 6.1 小时。中点再夹进 [起床+2h, 晚餐-4h]，
+    最后叠加"连续未吃早餐"的前移量（前移可以突破下限，但不早于起床+2h）。
+
+    `refused_breakfast` 是"今天的早餐不想吃"这一次的明确拒绝：比单纯跳过更进一步，
+    今天的午餐至少提前 REFUSED_BREAKFAST_SHIFT，晚餐也一起提前同样的分钟数
+    （跳过只影响午餐）。它只作用于今天这一天，未来的计划日不受影响。
+    """
     wake = wake_minutes % DAY
     sleep = sleep_minutes % DAY
+    if sleep <= wake:
+        # 摊到一条不折返的轴上（入睡在零点后则 +24 小时）：否则"睡前 3.5 小时"
+        # 与取中点都会算到负数上去，跨零点的作息（01:00 睡、06:00 起）直接错位。
+        sleep += DAY
 
     breakfast_best = wake + BREAKFAST_AFTER_WAKE[0]
     breakfast_end = wake + BREAKFAST_AFTER_WAKE[1]
 
-    lunch_base = wake + LUNCH_AFTER_WAKE[0]
-    lunch_shift = max(0, min(int(lunch_shift), LUNCH_ADVANCE_LADDER[-1]))
-    lunch_best = max(wake + LUNCH_FLOOR_AFTER_WAKE, lunch_base - lunch_shift)
-    lunch_end = lunch_best + (LUNCH_AFTER_WAKE[1] - LUNCH_AFTER_WAKE[0])
+    # 不想吃早餐 → 晚餐同样提前固定分钟数，窗口跟着一起挪（窗口长度保持 90 分钟）
+    dinner_shift = REFUSED_BREAKFAST_SHIFT if refused_breakfast else 0
+    dinner_best = sleep - DINNER_BEFORE_SLEEP[1] - dinner_shift
+    dinner_end = dinner_best + (DINNER_BEFORE_SLEEP[1] - DINNER_BEFORE_SLEEP[0])
 
-    dinner_best = sleep - DINNER_BEFORE_SLEEP[1]
-    dinner_end = sleep - DINNER_BEFORE_SLEEP[0]
+    lunch_shift = max(0, min(int(lunch_shift), LUNCH_ADVANCE_LADDER[-1]))
+    if refused_breakfast:
+        # 取两者的较大值而不是相加：连续没吃早餐的梯度本身已经能到 120 分钟，
+        # 相加会把午餐推到离谱的位置（下限托底后反而看不出效果）
+        lunch_shift = max(lunch_shift, REFUSED_BREAKFAST_SHIFT)
+    lunch_mid = int(round((breakfast_best + dinner_best) / 2))
+    lunch_best = max(
+        wake + LUNCH_FLOOR_AFTER_WAKE,
+        min(lunch_mid, dinner_best - LUNCH_TO_DINNER_MIN) - lunch_shift,
+    )
+    lunch_end = lunch_best + (LUNCH_AFTER_WAKE[1] - LUNCH_AFTER_WAKE[0])
 
     plan = {
         "breakfast": {
@@ -449,14 +494,15 @@ def _meal_times(
         "lunch": {
             "best": lunch_best,
             "end": lunch_end,
-            "anchor": "wake",
+            # 午餐同时受起床与入睡两端牵制（取中点），前端只把它当说明字段用
+            "anchor": "both",
             "shifted_minutes": lunch_shift,
         },
         "dinner": {
             "best": dinner_best,
             "end": dinner_end,
             "anchor": "sleep",
-            "shifted_minutes": 0,
+            "shifted_minutes": dinner_shift,
         },
     }
 
@@ -720,6 +766,9 @@ def build_advice(
     history = meal_history(db, user.id, today=today)
     streak = breakfast_skipped_streak(history, today=today)
     shift = lunch_shift_minutes(streak)
+    # "不想吃"只作用于今天这一天：方案里第 1 天（index 0）就是今天，其余日子不受影响
+    refused_today = refused_breakfast_today(history, today=today)
+    dinner_shift = REFUSED_BREAKFAST_SHIFT if refused_today else 0
 
     steps = _plan_steps(
         circular_diff_minutes(basis["sleep_minutes"], target["sleep_minutes"]),
@@ -745,7 +794,13 @@ def build_advice(
             step_minutes = abs(cumulative_sleep - previous_sleep)
         else:
             step_minutes = abs(cumulative_sleep)
-        meals = _meal_times(sleep_minutes, wake_minutes, enabled, lunch_shift=shift)
+        meals = _meal_times(
+            sleep_minutes,
+            wake_minutes,
+            enabled,
+            lunch_shift=shift,
+            refused_breakfast=refused_today and index == 0,
+        )
         plan.append(
             {
                 "index": index + 1,
@@ -834,6 +889,9 @@ def build_advice(
         "meal_plan": {
             "breakfast_skipped_streak": streak,
             "lunch_shift_minutes": shift,
+            # 今天早餐"不想吃"时的额外信息：前端用它给晚餐卡片加一句提示
+            "refused_breakfast_today": refused_today,
+            "dinner_shift_minutes": dinner_shift,
             "history": history["summary"],
             "recent": history["days"][-MEAL_HISTORY_DAYS:],
         },
@@ -854,6 +912,39 @@ def build_advice(
         "generated_at": utcnow(),
         "engine": ENGINE,
     }
+
+
+def apply_refused_breakfast_overlay(
+    payload: dict | None, *, today: date, lunch_shift: int, refused: bool
+) -> dict | None:
+    """把"今天早餐不想吃"叠加到计划快照的今天这一天（不重写快照）。
+
+    快照是生成那一刻算好的：任何一次打卡都不应该重写它，否则 planMeta 里那句
+    "已重算 N 次"会莫名其妙地涨，历史计划也被悄悄改写。所以"不想吃"只在读取时
+    覆盖今天这一天的三餐与时间图 —— 今天卡片和方案列表的第一行都从这里取，
+    看到的永远是同一份数据。未来的计划日不受影响。
+    """
+    if not refused or not payload:
+        return payload
+    target = today.isoformat()
+    for day in payload.get("plan") or []:
+        if day.get("date") != target:
+            continue
+        meals = day.get("meals") or {}
+        enabled = {key: bool(item.get("enabled", True)) for key, item in meals.items()}
+        sleep_minutes = parse_hhmm(day["sleep_time"])
+        wake_minutes = parse_hhmm(day["wake_time"])
+        fresh_meals = _meal_times(
+            sleep_minutes,
+            wake_minutes,
+            enabled,
+            lunch_shift=lunch_shift,
+            refused_breakfast=True,
+        )
+        day["meals"] = fresh_meals
+        day["timeline"] = _timeline(sleep_minutes, wake_minutes, fresh_meals)
+        break
+    return payload
 
 
 def day_for(plan: list[dict], the_date: date) -> dict | None:
@@ -893,6 +984,7 @@ __all__ = [
     "DINNER_BEFORE_SLEEP",
     "MEAL_BAR_MINUTES",
     "MEAL_HISTORY_DAYS",
+    "REFUSED_BREAKFAST_SHIFT",
     "DEVIATION_OK",
     "DEVIATION_ASK",
     "HIT_TOLERANCE",
@@ -905,8 +997,10 @@ __all__ = [
     "DEFAULT_SLOW_DAYS",
     "build_advice",
     "day_for",
+    "apply_refused_breakfast_overlay",
     "meal_history",
     "breakfast_skipped_streak",
+    "refused_breakfast_today",
     "lunch_shift_minutes",
     "suggested_days",
 ]

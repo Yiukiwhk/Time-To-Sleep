@@ -295,7 +295,14 @@
 .tl-h .tl-axis { position: relative; height: 32px; }
 
 .tl-v { display: none; }
-.tl-v .tl-track { height: 144px; }
+/* 窄屏的轨道只是"行的容器"：不再有固定高度，也不再按时间比例压缩 */
+.tl-v .tl-track {
+  position: static;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 
 /* 纵向轴：三段文字顺着排，不做绝对定位 */
 .tl-axis-v {
@@ -351,39 +358,63 @@
   background: var(--border);
 }
 
-.tl-item {
+/* 宽屏：条本体就是胶囊，位置与长度都由 --pos / --len 决定 */
+.tl-h .tl-item {
   position: absolute;
+  top: 4px;
+  bottom: 4px;
   left: var(--pos);
   width: var(--len);
+  min-width: 10px;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  min-width: 10px;
 }
 
-.tl-h .tl-item { top: 4px; bottom: 4px; }
-.tl-v .tl-item { left: 4px; right: 4px; }
+/* 窄屏：一行一条（名称 | 比例小条 | 时间区间）。
+   早先是"把 144px 高的竖轨按 --pos/--len 压缩"，20 小时轴窗里 30 分钟的早餐
+   只有 3.6px 高，名称又被 overflow:hidden 裁掉 —— 用户报的"手机版很多不显示"。
+   现在行高由 CSS 保证，比例只体现在中间小条的长度上，两端的文字都排成横排。 */
+.tl-v .tl-item {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: 100%;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  overflow: visible;
+  border-radius: 0;
+}
 
-.tl-v .tl-item { top: var(--pos); height: var(--len); }
-
+/* 配色只定义一次（自定义属性）：宽屏落在条本体上，窄屏落在行里的小条与名称文字上 */
 .tl-item.sleep {
-  background: var(--accent-soft);
-  border: 1px solid rgba(79, 140, 255, 0.45);
-  color: var(--accent);
+  --bar-bg: var(--accent-soft);
+  --bar-border: rgba(79, 140, 255, 0.45);
+  --bar-fg: var(--accent);
 }
-.tl-item.sleep-morning { background: rgba(79, 140, 255, 0.1); }
+.tl-item.sleep-morning { --bar-bg: rgba(79, 140, 255, 0.1); }
 
 .tl-item.meal {
-  background: rgba(240, 177, 55, 0.16);
-  border: 1px solid rgba(240, 177, 55, 0.5);
-  color: var(--warn);
+  --bar-bg: rgba(240, 177, 55, 0.16);
+  --bar-border: rgba(240, 177, 55, 0.5);
+  --bar-fg: var(--warn);
 }
 .tl-item.meal-dinner {
-  background: rgba(53, 196, 141, 0.16);
-  border-color: rgba(53, 196, 141, 0.5);
-  color: var(--ok);
+  --bar-bg: rgba(53, 196, 141, 0.16);
+  --bar-border: rgba(53, 196, 141, 0.5);
+  --bar-fg: var(--ok);
+}
+
+.tl-h .tl-item {
+  background: var(--bar-bg);
+  border: 1px solid var(--bar-border);
+  color: var(--bar-fg);
 }
 
 .tl-item-label {
@@ -399,7 +430,60 @@
 }
 .tl-icon { font-size: 11px; }
 .tl-name { overflow: hidden; text-overflow: ellipsis; }
-.tl-v .tl-item-label { writing-mode: vertical-rl; font-size: 10px; }
+
+/* --- 窄屏的"一行一条"（见上面 .tl-v .tl-item） --- */
+/* 名称列定宽：行与行之间的小条因此左端对齐。
+   超长文案在列内裁掉（配 min-width:0 让 ellipsis 生效），不会溢到小条上 */
+.tl-v .tl-item-label {
+  writing-mode: horizontal-tb;
+  flex: 0 0 auto;
+  width: 84px;
+  max-width: none;
+  padding: 0;
+  font-size: 11px;
+  color: var(--bar-fg);
+}
+.tl-v .tl-name { min-width: 0; }
+/* 小条的轨道：宽度留给比例计算，背景只做"这一天"的参照 */
+.tl-v .tl-rowtrack {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.tl-v .tl-bar {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: var(--pos);
+  width: var(--len);
+  min-width: 4px;
+  border-radius: 3px;
+  background: var(--bar-bg);
+  border: 1px solid var(--bar-border);
+}
+/* 时间区间：右对齐 + 等宽数字，跨零点时也只看区间本身 */
+.tl-v .tl-item-time {
+  flex: 0 0 auto;
+  width: 72px;
+  text-align: right;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* 行布局用不到的节点：比例刻线、时间刻度（行里已经写了时间）、"现在"标记
+   （横线本身依赖按比例压缩的竖轨，行布局里放不下，故窄屏不画） */
+.tl-v .tl-grid-line,
+.tl-v .tl-tick,
+.tl-v .tl-now { display: none; }
+
+/* 这两个节点只服务于窄屏行布局，宽屏隐藏 */
+.tl-h .tl-rowtrack,
+.tl-h .tl-item-time { display: none; }
 
 /* "现在"标记：轴线 + 文字都挂在同一个 --pos 上 */
 .tl-now { position: absolute; inset: 0; pointer-events: none; }
@@ -426,27 +510,6 @@
   padding: 0 4px;
   border-radius: 4px;
 }
-.tl-v .tl-now-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: var(--pos);
-  height: 2px;
-  margin-top: -1px;
-  background: var(--danger);
-}
-.tl-v .tl-now-text {
-  position: absolute;
-  left: 4px;
-  top: var(--pos);
-  transform: translateY(-50%);
-  font-size: 10px;
-  font-style: normal;
-  color: var(--danger);
-  background: var(--bg-elevated);
-  padding: 0 3px;
-  border-radius: 4px;
-}
 
 .tl-legend {
   display: flex;
@@ -459,13 +522,17 @@
 
 /* 小号变体：方案列表里每一天一条 */
 .timeline-mini { gap: 8px; }
-.timeline-mini .tl-track { height: 34px; }
+.timeline-mini .tl-track { height: 34px; }              /* 宽屏迷你轨道 */
 .timeline-mini .tl-h .tl-axis { height: 22px; font-size: 10px; }
 .timeline-mini .tl-axis-sleep { top: 12px; font-size: 9px; padding: 0 6px; }
 .timeline-mini .tl-item-label { font-size: 10px; }
 .timeline-mini .tl-icon { display: none; }
 .timeline-mini .tl-h .tl-now-text { display: none; }
-.timeline-mini .tl-v .tl-track { height: 104px; }
+/* 窄屏迷你：同样是行列表，只是行更矮、名称列更窄、不重复时间区间 */
+.timeline-mini .tl-v .tl-track { height: auto; gap: 3px; }
+.timeline-mini .tl-v .tl-item { height: 18px; gap: 5px; }
+.timeline-mini .tl-v .tl-item-label { width: 54px; }
+.timeline-mini .tl-v .tl-rowtrack { height: 10px; }
 
 .timeline-slot { margin-top: 12px; }
 .timeline-slot.mini { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
@@ -529,6 +596,13 @@
   border-color: var(--border-strong);
   color: var(--text);
   background: var(--bg-hover);
+  font-weight: 600;
+}
+/* 「不想吃」会顺手把今天的午餐和晚餐一起提前，用醒目一点的底色把它和「跳过」分开 */
+.checkin-btn.active-refused {
+  border-color: rgba(240, 177, 55, 0.6);
+  color: var(--warn);
+  background: rgba(240, 177, 55, 0.12);
   font-weight: 600;
 }
 

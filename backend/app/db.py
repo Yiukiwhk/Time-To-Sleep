@@ -130,7 +130,25 @@ def init_db() -> None:
     models.Base.metadata.create_all(bind=engine)
     _migrate_deletion_requests()
     _migrate_users_advice_notice()
+    _migrate_meal_checks_refused()
     _ensure_sqlite_pragmas()
+
+
+def _migrate_meal_checks_refused() -> None:
+    """给 meal_checks 表补 refused 列（"早餐不想吃"新增，create_all 不会加列）。
+
+    SQLite 的 ALTER TABLE 不支持带默认值的 NOT NULL 加列组合在旧库上"回填"，
+    所以这里显式给默认值 0：老库里的历史打卡一律视为"没有明确拒绝"。
+    """
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(meal_checks)")).fetchall()
+        if not rows:
+            return
+        if any(row[1] == "refused" for row in rows):
+            return
+        conn.execute(
+            text("ALTER TABLE meal_checks ADD COLUMN refused BOOLEAN NOT NULL DEFAULT 0")
+        )
 
 
 def _migrate_users_advice_notice() -> None:

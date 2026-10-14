@@ -262,10 +262,13 @@ class AdviceRequest(BaseModel):
 
 
 class AdviceCheckinRequest(BaseModel):
-    """建议页三餐卡片上的"已吃 / 跳过"一键确认。"""
+    """建议页三餐卡片上的"已吃 / 跳过 / 不想吃"一键确认。"""
 
     meal: Literal["breakfast", "lunch", "dinner"]
     eaten: bool
+    # "不想吃"：只有早餐会用到（前端只在早餐卡片给这个按钮）。它必然是没吃，
+    # 并且会让今天的午餐与晚餐都提前 60 分钟；点已吃/跳过时前端会传 False 清掉它
+    refused: bool = False
     date: str | None = Field(default=None, max_length=10)
 
 
@@ -288,7 +291,8 @@ class MealPlan(BaseModel):
     window_start: str | None = None
     window_end: str | None = None
     bar_minutes: int | None = None          # 时间图上的条长（仅视觉）
-    anchor: Literal["wake", "sleep"] | None = None
+    # 午餐取早餐与晚餐的中点，所以它的锚点是两端（wake / sleep / both）
+    anchor: Literal["wake", "sleep", "both"] | None = None
     shifted_minutes: int = 0                # 因未吃早餐而前移的分钟数
     note: str | None = None                 # i18n 键
 

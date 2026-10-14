@@ -86,7 +86,7 @@ backend\.venv\Scripts\python.exe run.py --reload
 # 1) 后端接口冒烟：进程内 TestClient，使用独立临时库，不碰 data/app.db
 backend/.venv/Scripts/python.exe tests/smoke_test.py
 
-# 2) 算法引擎单元测试（12 项：步长曲线、三餐窗口、午餐前移、快照/偏离/重算、跨零点时间图）
+# 2) 算法引擎单元测试（14 项：步长曲线、三餐窗口、午餐中点与前移、不想吃补偿、快照/偏离/重算、跨零点时间图）
 backend/.venv/Scripts/python.exe -m pytest tests/test_advice_engine.py -q
 
 # 3) 真实服务端到端（先启动服务，再另开终端执行；约 71 项断言）

@@ -6,6 +6,9 @@
      这里只负责各画各的，绝不重新推导环绕
    - 宽屏横向、窄屏纵向：两套标记都渲染，由 CSS 媒体查询决定显示哪一套
      （display:none 的节点不占布局，也不需要 JS 监听 resize）
+   - 窄屏不再是"把竖轨按时间比例压缩"：20 小时轴窗里 30 分钟的三餐只有几个像素高，
+     文字还会被 overflow:hidden 裁光（用户报的"手机版很多不显示"）。改成一行一条：
+     行高由 CSS 保证，比例只体现在中间那根小条的长度上，名称与时间区间都排成横排
    - 所有文案走 i18n，条上的名称与轴上的时间都是可见文字，不依赖颜色区分
    ========================================================================== */
 
@@ -90,15 +93,25 @@ export function renderTimeline(timeline, opts = {}) {
       } else {
         name = barLabel(item);
       }
-      const label = name
-        ? `<span class="tl-item-label">${icon ? `<span class="tl-icon">${icon}</span>` : ""}<span class="tl-name">${escapeHtml(
-            name
-          )}</span></span>`
-        : "";
+      // 名称容器始终渲染，哪怕是空字符串：窄屏的行布局靠它撑出左侧文字列，
+      // 少一个容器那一行的小条就会错位（睡眠条在迷你图里没有名字）
+      const label =
+        `<span class="tl-item-label">` +
+        (name
+          ? `${icon ? `<span class="tl-icon">${icon}</span>` : ""}<span class="tl-name">${escapeHtml(name)}</span>`
+          : "") +
+        `</span>`;
+      // 窄屏（.tl-v）一行一条：名称列 + 按时间比例的小条 + 时间区间。
+      // 宽屏用不到这两个节点，由 CSS 隐藏（见 app.css 的 .tl-h/.tl-v 区块）。
+      // 迷你图里的时间在上方餐次块已经写了，行里不再重复。
+      const range = item.start_time && item.end_time ? `${item.start_time}–${item.end_time}` : "";
+      const row =
+        `<span class="tl-rowtrack"><span class="tl-bar"></span></span>` +
+        (range && !mini ? `<span class="tl-item-time">${escapeHtml(range)}</span>` : "");
       return (
         `<span class="tl-item ${kind}" style="--pos:${pct((start / span) * 100)};--len:${pct(
           ((end - start) / span) * 100
-        )}" title="${escapeHtml(barHint(item))}">${label}</span>`
+        )}" title="${escapeHtml(barHint(item))}">${label}${row}</span>`
       );
     })
     .join("");
@@ -117,13 +130,15 @@ export function renderTimeline(timeline, opts = {}) {
     gridLines.push(`<i class="tl-grid-line" style="--pos:${pct(position)}"></i>`);
   }
 
-  // "现在"标记：当前时间落在轴窗内才画（跨零点的轴窗用 >= axis_start 判断即可）
+  // "现在"标记：当前时间落在轴窗内才画。轴窗会跨零点（例如 06:04 起、02:04 止），这时"现在"
+  // 若是凌晨，钟点数值反而比 axis_start 小，必须补一天再比较，否则凌晨那几个小时没有标记
   let nowMark = "";
   if (opts.now) {
     const clock = new Date();
-    const nowMinutes = clock.getHours() * 60 + clock.getMinutes();
-    if (nowMinutes >= axisStart && nowMinutes <= axisStart + span) {
-      const hint = `${t("advice.timeline.now")} ${formatClock(nowMinutes)}`;
+    const wallMinutes = clock.getHours() * 60 + clock.getMinutes();
+    const nowMinutes = wallMinutes < axisStart ? wallMinutes + 24 * 60 : wallMinutes;
+    if (nowMinutes <= axisStart + span) {
+      const hint = `${t("advice.timeline.now")} ${formatClock(wallMinutes)}`;
       nowMark =
         `<span class="tl-now" style="--pos:${pct(((nowMinutes - axisStart) / span) * 100)}" ` +
         `title="${escapeHtml(hint)}"><i class="tl-now-line"></i>` +

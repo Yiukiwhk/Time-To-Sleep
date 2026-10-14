@@ -295,11 +295,11 @@
       "shift_wake_minutes": -35,
       "step_minutes": 35,
       "meals": {
-        "breakfast": {"enabled": true, "best_time": "07:25", "time": "07:25", "window_start": "07:20", "window_end": "07:35", "bar_minutes": 30, "anchor": "wake", "shifted_minutes": 0, "note": null},
-        "lunch": {"enabled": true, "best_time": "10:20", "time": "10:20", "window_start": "10:05", "window_end": "12:05", "bar_minutes": 60, "anchor": "wake", "shifted_minutes": 0, "note": null},
-        "dinner": {"enabled": true, "best_time": "21:00", "time": "21:00", "window_start": "19:30", "window_end": "21:00", "bar_minutes": 60, "anchor": "sleep", "shifted_minutes": 0, "note": null}
+        "breakfast": {"enabled": true, "best_time": "07:20", "time": "07:20", "window_start": "07:20", "window_end": "07:35", "bar_minutes": 30, "anchor": "wake", "shifted_minutes": 0, "note": null},
+        "lunch": {"enabled": true, "best_time": "13:48", "time": "13:48", "window_start": "13:48", "window_end": "15:48", "bar_minutes": 60, "anchor": "both", "shifted_minutes": 0, "note": null},
+        "dinner": {"enabled": true, "best_time": "20:15", "time": "20:15", "window_start": "20:15", "window_end": "21:45", "bar_minutes": 60, "anchor": "sleep", "shifted_minutes": 0, "note": null}
       },
-      "timeline": {"axis_start": "23:45", "axis_end": "23:45", "span_minutes": 1440, "sleep_label": "23:45 → 07:05", "sleep_minutes": 440, "items": [{"kind": "sleep", "start": "23:45", "end": "07:05", "minutes": 440}]},
+      "timeline": {"axis_start": "05:05", "axis_end": "01:45", "span_minutes": 1240, "sleep_label": "23:45 → 07:05", "sleep_minutes": 440, "items": [{"kind": "sleep", "start": "23:45", "end": "07:05", "minutes": 440}]},
       "tips": ["advice.tip.keep_regular"]
     }
   ],
@@ -322,15 +322,21 @@
 
 ### `POST /api/advice/checkin`
 
-三餐卡片的“已吃 / 跳过”一键确认，会写回当天记录（因此受 30 秒写入冷却限制）。
+三餐卡片的“已吃 / 跳过 / 不想吃”一键确认，会写回当天记录（因此受 30 秒写入冷却限制）。
 
 ```json
 {
   "meal": "breakfast",
   "eaten": false,
+  "refused": false,
   "date": "2026-02-20"
 }
 ```
+
+- `refused`：只有早餐用得上。`true` 表示“不想吃”，与“跳过”一样计入连续未吃早餐，
+  **并把当天的午餐与晚餐一起提前 60 分钟**（晚餐 −60，午餐因取中点再往前 30，共 −90）；
+  给非早餐的餐次传 `true` 会被服务端忽略。点“已吃”即可撤销。
+- `date` 省略表示今天。
 
 ```json
 {
@@ -338,12 +344,22 @@
   "date": "2026-02-20",
   "meal": "breakfast",
   "eaten": false,
-  "meal_plan": {"lunch": {"best_time": "09:20", "shifted_minutes": 60, "note": "advice.meal.lunch_advanced"}}
+  "refused": true,
+  "meal_plan": {
+    "lunch": {"best_time": "09:20", "shifted_minutes": 60, "note": "advice.meal.lunch_advanced"},
+    "dinner_shift_minutes": 60,
+    "refused_breakfast_today": true
+  },
+  "today": {"date": "2026-02-20", "meals": {"lunch": {"best_time": "09:20"}, "dinner": {"best_time": "20:30"}}},
+  "timeline": {"span_minutes": 1200, "items": []}
 }
 ```
 
-连读多天未吃早餐会让午餐建议逐步前移（`shifted_minutes` 递增），规则见
-[ALGORITHM.md](ALGORITHM.md)。`date` 省略表示今天。
+响应除 `meal_plan` 外还带 `today`（当天卡片，含三餐与时间图）与 `timeline`，前端据此刻度重画，
+不必再拉一次整页。
+
+连续多天未吃早餐会让午餐建议逐步前移（`shifted_minutes` 递增，每次 60 / 90 / 120 分钟，
+下限是起床后 2 小时），规则见 [ALGORITHM.md](ALGORITHM.md)。
 
 ### `POST /api/advice/notice-ack`
 
