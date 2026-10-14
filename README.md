@@ -44,7 +44,7 @@
 ### 安全与防护
 
 - **Cookie 会话**：HttpOnly 会话 Cookie，用户端与管理后台互相隔离，30 天 / 12 小时两档有效期。
-- **登录防爆破**：连续失败 5 次锁定 15 分钟，失败计数带时间窗口；每次失败都会提示「还可尝试几次」，锁定那次直接显示解锁倒计时。
+- **登录防爆破**：连续失败 5 次锁定 15 分钟，失败计数带时间窗口、成功登录后立即清零；每次失败都会提示「还可尝试几次」，锁定那次直接显示解锁倒计时。
 - **写入冷却**：同一用户 10 秒内不能重复提交写入，前端倒计时 + 后端 `429 error.write_too_fast` 双重限制。
 - **越权按不存在处理**：访问他人资源返回 404 而非 403，避免探测资源是否存在。
 - **输入长度限制**：用户名、密码、备注等都有服务端上限（密码上限即 bcrypt 的 72 字节）。
@@ -169,8 +169,8 @@ python scripts/check_i18n_keys.py && python scripts/check_css_classes.py && pyth
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps1
 ```
 
-改动前端或算法后建议跑最后一条，它会顺带跑三条回归护栏（无漏翻 i18n key、无未填充占位符、时间条不压
-刻度与图例）。命令逐条说明见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+改动前端或算法后建议跑最后一条，它会顺带跑五条回归护栏（无漏翻 i18n key、无未填充占位符、时间条不压
+刻度与图例、登录失败预警剩余次数、成功登录清零失败计数）。命令逐条说明见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 ## 部署
 

@@ -39,13 +39,38 @@ def ensure_not_locked(user: User) -> None:
         )
 
 
+def count_failures(session, name: str, now=None) -> int:
+    """窗口内的失败次数，且只统计"最近一次成功登录之后"的失败。
+
+    成功登录会把计数清零：否则用户输错几次、登录成功、下次再输错就直接看到
+    "还剩 1 次机会"，与他刚刚成功登录的事实矛盾。
+    """
+    now = now or utcnow()
+    window_start = now - timedelta(seconds=settings.LOGIN_FAILURE_WINDOW_SECONDS)
+    last_success = session.execute(
+        select(func.max(LoginAttempt.created_at)).where(
+            LoginAttempt.username == name,
+            LoginAttempt.success.is_(True),
+        )
+    ).scalar_one_or_none()
+    conditions = [
+        LoginAttempt.username == name,
+        LoginAttempt.success.is_(False),
+        LoginAttempt.created_at >= window_start,
+    ]
+    if last_success is not None:
+        conditions.append(LoginAttempt.created_at > last_success)
+    return int(session.execute(select(func.count(LoginAttempt.id)).where(*conditions)).scalar_one())
+
+
 def register_failure(
     user: User | None, *, username: str, ip: str, event: str = "login"
 ) -> tuple[int, int]:
     """记录一次登录失败，达到阈值则锁定账号。
 
     返回 ``(failures, locked_seconds)``：窗口内累计失败次数与本次触发的锁定时长
-    （没触发锁定为 0），调用方据此给前端"还剩几次机会"的预警。
+    （没触发锁定为 0），调用方据此给前端"还剩几次机会"的预警。计数只算最近一次
+    成功登录之后的失败，所以成功登录过就从满额重新开始。
 
     即使账号不存在也要统计次数：否则响应体里带不带剩余次数就成了"用户名是否
     存在"的信号，前端提示也会时有时无。
@@ -58,15 +83,7 @@ def register_failure(
             session.add(LoginAttempt(username=name, ip=ip, success=False, created_at=now))
             # 先落库再统计，让这次失败也算进窗口里
             session.flush()
-            window_start = now - timedelta(seconds=settings.LOGIN_FAILURE_WINDOW_SECONDS)
-            recent = session.execute(
-                select(func.count(LoginAttempt.id)).where(
-                    LoginAttempt.username == name,
-                    LoginAttempt.success.is_(False),
-                    LoginAttempt.created_at >= window_start,
-                )
-            ).scalar_one()
-            failures = int(recent)
+            failures = count_failures(session, name, now)
             locked_seconds = 0
             if user is not None:
                 fresh = session.get(User, user.id)
@@ -116,6 +133,10 @@ def failure_warning(failures: int, locked_seconds: int = 0, *, known: bool = Tru
 
 
 def register_success(user: User, *, ip: str, scope: str = "user") -> None:
+    """记录一次成功登录：清掉失败计数与锁定，并写下一条成功审计。
+
+    成功审计本身也是计数分界线 —— ``count_failures()`` 只统计它之后的失败。
+    """
     now = utcnow()
 
     def _write() -> None:
@@ -142,17 +163,8 @@ def register_success(user: User, *, ip: str, scope: str = "user") -> None:
 
 
 def recent_failure_count(username: str) -> int:
-    window_start = utcnow() - timedelta(seconds=settings.LOGIN_FAILURE_WINDOW_SECONDS)
     session = SessionLocal()
     try:
-        return int(
-            session.execute(
-                select(func.count(LoginAttempt.id)).where(
-                    LoginAttempt.username == username[:32],
-                    LoginAttempt.success.is_(False),
-                    LoginAttempt.created_at >= window_start,
-                )
-            ).scalar_one()
-        )
+        return count_failures(session, username[:32])
     finally:
         session.close()

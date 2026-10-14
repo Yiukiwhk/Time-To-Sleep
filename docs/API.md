@@ -124,6 +124,10 @@
   用户名不存在时同样记一次失败（防爆破），但**不带** `remaining_attempts`——那里没有账号可锁，
   给倒计时是误导。
 
+  成功登录会把失败计数**清零**：计数只统计「最近一次成功登录之后」的失败（同窗口内），
+  所以输错几次再登进来，下次输错又从满额开始提示；窗内的历史失败仍保留在 `login_attempts`
+  审计表里，不会被删除。
+
 ### `POST /api/auth/admin/login`
 
 管理员**三段密码**登录：`passwords` 数组第 1 个元素是账号密码，其余按顺序对应第 2、3 段。
@@ -508,7 +512,7 @@
 | `POST` | `/api/admin/users` | 新建用户；`is_admin: true` 时必须提供 `admin_passwords`（第 2/3 段） |
 | `PATCH` | `/api/admin/users/{user_id}` | 启停 / 改语言主题；停用自己 400 `error.cannot_disable_self`，停用最后一个管理员 400 `error.last_admin` |
 | `POST` | `/api/admin/users/{user_id}/password` | 重置某用户密码（`{"new_password":"..."}`） |
-| `POST` | `/api/admin/users/{user_id}/unlock` | 解除登录锁定 |
+| `POST` | `/api/admin/users/{user_id}/unlock` | 解除登录锁定，并清掉该用户名在失败窗口内的记录（解锁后重新从满额开始提示剩余次数） |
 | `DELETE` | `/api/admin/users/{user_id}` | 删除用户；删自己 400 `error.cannot_delete_self`；删最后一个管理员 400 `error.last_admin` |
 
 ```json

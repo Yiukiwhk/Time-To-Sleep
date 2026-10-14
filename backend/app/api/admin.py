@@ -321,7 +321,11 @@ def unlock_user(
     ctx: RequestContext = Depends(client_meta),
     db: Session = Depends(get_db),
 ) -> MessageOut:
-    """解除因连续登录失败导致的账号锁定。"""
+    """解除因连续登录失败导致的账号锁定。
+
+    窗口内的失败记录一并清掉：只把 ``locked_until`` 置空的话，旧失败仍会被算进
+    "还剩几次机会"，用户刚被解锁就看到还剩 0 次、再输错一次又被锁 15 分钟。
+    """
     target = _get_user_or_404(db, user_id)
 
     def _update() -> None:
@@ -331,6 +335,7 @@ def unlock_user(
                 raise ApiError(404, "error.user_not_found", code="error.user_not_found")
             fresh.failed_login_count = 0
             fresh.locked_until = None
+            session.execute(delete(LoginAttempt).where(LoginAttempt.username == target.username[:32]))
             session.flush()
 
     run_with_retry(_update, label="admin_unlock_user")

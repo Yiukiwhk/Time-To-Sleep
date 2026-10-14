@@ -388,6 +388,21 @@ def main() -> int:
     status, body, _ = bob.post("/api/auth/login", {"username": user_b, "password": "User@12345"})
     check("解锁后可正常登录", status == 200, f"{status} {body}")
 
+    # 成功登录把失败计数清零：连错两次（4/3）→ 成功登录 → 再错一次应又回到 4
+    reset_victim = Client()
+    reset_seen = []
+    for _ in range(2):
+        status, body, _ = reset_victim.post("/api/auth/login", {"username": user_b, "password": "wrong-pass"})
+        reset_seen.append(body.get("remaining_attempts") if isinstance(body, dict) else None)
+    status, body, _ = bob.post("/api/auth/login", {"username": user_b, "password": "User@12345"})
+    relogin_status = status
+    status, body, _ = reset_victim.post("/api/auth/login", {"username": user_b, "password": "wrong-pass"})
+    check(
+        "成功登录后失败计数清零",
+        reset_seen == [4, 3] and relogin_status == 200 and isinstance(body, dict) and body.get("remaining_attempts") == 4,
+        f"before={reset_seen} relogin={relogin_status} after={body}",
+    )
+
     print("\n[10] 会话注销与清理")
     status, body, _ = bob.post("/api/auth/logout")
     check("用户注销会话", status == 200, f"{status} {body}")

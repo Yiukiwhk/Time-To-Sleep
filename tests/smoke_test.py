@@ -218,6 +218,25 @@ def main() -> int:
             rr.text[:200],
         )
 
+        # 成功登录把失败计数清零：解锁（顺带清掉窗口里的旧失败）→ 连错两次（4/3）
+        # → 成功登录 → 再错一次应又回到 4，而不是接着往下掉
+        found = admin_client.get("/api/admin/users", params={"q": "bob"}).json()
+        bob_id = next((row["id"] for row in (found.get("items") or []) if row.get("username") == "bob"), None)
+        unlock_status = admin_client.post(f"/api/admin/users/{bob_id}/unlock").status_code
+        reset_victim = TestClient(app)
+        reset_seen = []
+        for _ in range(2):
+            rr = reset_victim.post("/api/auth/login", json={"username": "bob", "password": "wrong-pass-1"})
+            reset_seen.append(rr.json().get("remaining_attempts"))
+        rr = reset_victim.post("/api/auth/login", json={"username": "bob", "password": "User@12345"})
+        cleared_status = rr.status_code
+        rr = reset_victim.post("/api/auth/login", json={"username": "bob", "password": "wrong-pass-1"})
+        check(
+            "成功登录后失败计数清零",
+            unlock_status == 200 and reset_seen == [4, 3] and cleared_status == 200 and rr.json().get("remaining_attempts") == 4,
+            f"unlock={unlock_status} before={reset_seen} cleared={cleared_status} after={rr.text[:200]}",
+        )
+
         print("\n[10] 注销会话")
         r = user2.get("/api/auth/me")
         check("注销后会话失效", r.status_code == 401, r.text[:200])

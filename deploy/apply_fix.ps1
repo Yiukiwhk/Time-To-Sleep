@@ -64,9 +64,11 @@ if (-not (Test-Path -LiteralPath (Join-Path $root "frontend\user\index.html"))) 
 }
 
 # Python modules shipped by a release: the adaptive-v2 advice engine, the auth
-# guard (login-failure warning), the records cooldown and the config defaults.
+# guard (login-failure warning + failure-count reset) and the records cooldown
+# with the config defaults.
 # Keep in sync with the rollback list in deploy/remote_apply_fix.sh.
 $backendFiles = @(
+    "app\api\admin.py",
     "app\api\advice.py",
     "app\api\auth.py",
     "app\api\records.py",

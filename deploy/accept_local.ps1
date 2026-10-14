@@ -170,6 +170,12 @@ if (-not $SkipBrowser) {
                 Check "[$mode] failed login reports remaining attempts" (($lw.status -eq 401) -and $hasRemaining) ("warning=" + ($lw | ConvertTo-Json -Compress))
                 Check "[$mode] login warning text shows the remaining tries" ("$($lw.text)" -match "还可尝试|attempt") ("text=" + $lw.text)
                 Check "[$mode] lock-out text replaces the countdown" ("$($json.login_locked_text)" -match "锁定|locked") ("text=" + $json.login_locked_text)
+                # 用户需求：登录成功后失败计数要清零（连错两次 → 成功登录 → 再错一次应回到满额）
+                $lr = $json.login_reset
+                Check "[$mode] a successful login clears the failure count" (
+                    ($null -ne $lr) -and ([int]$lr.relogin -eq 200) -and
+                    ([int]$lr.after -eq ([int]$lr.max - 1)) -and ([int]$lr.after -gt [int]$lr.before)
+                ) ("login_reset=" + ($lr | ConvertTo-Json -Compress))
             } else {
                 Check "[$mode] probe reported the login warning" $false "login_warning missing from the render summary"
             }

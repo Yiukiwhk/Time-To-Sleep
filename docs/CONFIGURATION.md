@@ -69,7 +69,7 @@
 | `SSP_ADMIN_COOKIE_NAME` | `ssp_admin_session` | 管理后台会话 Cookie 名（与用户端隔离）。 |
 | `SSP_SESSION_TTL_SECONDS` | `2592000`（30 天） | 勾选“记住登录”时的会话有效期。 |
 | `SSP_SESSION_TTL_SHORT_SECONDS` | `43200`（12 小时） | 未勾选“记住登录”时的会话有效期。 |
-| `SSP_LOGIN_MAX_FAILURES` | `5` | 连续登录失败达到该次数即锁定账号；每次失败响应都带 `remaining_attempts` 供前端提示剩余次数。 |
+| `SSP_LOGIN_MAX_FAILURES` | `5` | 连续登录失败达到该次数即锁定账号；每次失败响应都带 `remaining_attempts` 供前端提示剩余次数，成功登录后计数清零。 |
 | `SSP_LOGIN_LOCK_SECONDS` | `900`（15 分钟） | 锁定持续时间。 |
 | `SSP_LOGIN_FAILURE_WINDOW_SECONDS` | `900`（15 分钟） | 失败计数窗口，窗口外的失败不计入。 |
 | `SSP_WRITE_COOLDOWN_SECONDS` | `10` | 同一用户两次写操作的冷却秒数，命中返回 429 `error.write_too_fast`；铺数据脚本可临时设为 `0`。 |

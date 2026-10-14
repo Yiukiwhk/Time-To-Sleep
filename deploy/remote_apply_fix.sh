@@ -57,7 +57,7 @@ fi
 # Python modules shipped by a release: the adaptive-v2 advice engine, the auth
 # guard (login-failure warning), the records cooldown and the config defaults.
 # Must stay in sync with $backendFiles in deploy/apply_fix.ps1.
-BACKEND_FILES="app/api/advice.py app/api/auth.py app/api/records.py app/config.py app/db.py app/models.py app/schemas.py app/services/advice.py app/services/advice_plan.py app/services/auth_service.py"
+BACKEND_FILES="app/api/admin.py app/api/advice.py app/api/auth.py app/api/records.py app/config.py app/db.py app/models.py app/schemas.py app/services/advice.py app/services/advice_plan.py app/services/auth_service.py"
 
 echo "== 2b. backend code =="
 BACKEND_BACKUP=/tmp/sleep-backend-backup
@@ -241,7 +241,7 @@ esac
 # the "N attempts left" warning on a failed login.  Checking the shipped files (not
 # just the HTTP surface) catches a half-applied release where the service still
 # answers from bytecode of the previous build.
-echo "== 4e. deployed code carries the 10s cooldown and the login warning =="
+echo "== 4e. deployed code carries the 10s cooldown, the login warning and the failure-count reset =="
 grep_file() {  # grep_file <label> <file> <needle>
     local label="$1" file="$2" needle="$3" hits
     hits=$(grep -c -- "$needle" "$file" 2>/dev/null || true)
@@ -258,6 +258,8 @@ grep_file "auth service: warning"   "$APP_DIR/backend/app/services/auth_service.
 grep_file "api auth: warning used"  "$APP_DIR/backend/app/api/auth.py"               'failure_warning('
 grep_file "i18n: warning key"       "$WEBROOT/shared/i18n.js"                        'error.invalid_credentials_attempts'
 grep_file "i18n: warning branch"    "$WEBROOT/shared/i18n.js"                        'remaining_attempts'
+grep_file "auth service: reset"     "$APP_DIR/backend/app/services/auth_service.py"  'def count_failures'
+grep_file "api admin: unlock reset" "$APP_DIR/backend/app/api/admin.py"              'LoginAttempt.username == target.username[:32]'
 
 echo
 if [ "$fail" -eq 0 ]; then

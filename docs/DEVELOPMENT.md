@@ -152,7 +152,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 | `refused` | 1440×1240 | 早餐卡片提供「不想吃」按钮 → 真点提交打卡（`POST /api/advice/checkin`）、晚餐精确提前 60 分钟、午餐不推后（有空间时提前）、按钮进入激活态、点「吃了」撤销后恢复、快速模式说明固定单日并隐藏天数滑块 |
 | `mobile` | 390×900 | 窄屏改用纵向时间图、时间图条 ≥4、无横向溢出 |
 
-每一档都会顺带跑四条“用户看得到”的回归护栏，任何一条不过整体失败：
+每一档都会顺带跑五条“用户看得到”的回归护栏，任何一条不过整体失败：
 
 1. **没有漏翻的 i18n key**：正文里不允许出现 `advice.* / records.* / common.*` 这类原始 key。
 2. **没有未填充的占位符**：正文里不允许出现 `{streak}` 这种花括号参数（`tp()` 漏传参数的典型症状）。
@@ -161,6 +161,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 4. **登录失败带剩余次数预警**：探针故意用错密码登一次，断言 401 响应里有 `remaining_attempts`
    且渲染出的提示含有剩余次数；随后用正确密码再登一次把失败计数清零（否则连跑几次会把账号锁掉），
    锁定时改成锁定倒计时文案（`error.account_locked`）同样是断言项。
+5. **成功登录清零失败计数**：连错两次 → 成功登录 → 再错一次，`remaining_attempts` 必须回到
+   `max_attempts - 1`（没有清零时会继续往下掉）。探针把这三步的结果放进 `login_reset`，
+   验收脚本对每个档位断言一遍；`tests/e2e_http.py` 与 `tests/smoke_test.py` 也有同一条用例
+   （管理员解锁同样清掉窗口内的失败记录，所以解锁后不会立刻又被算成"还剩 0 次"）。
 
 ## 前端开发硬约束
 
