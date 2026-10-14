@@ -134,13 +134,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 #   -KeepRunning                      跑完保留两个服务
 ```
 
-执行顺序：以 `.tmp\accept\app.db` 为临时库启动后端（**关闭 30 秒写入冷却**，便于连续铺数据）
+执行顺序：以 `.tmp\accept\app.db` 为临时库启动后端（**关闭 10 秒写入冷却**，便于连续铺数据）
 → 用 `deploy/serve_local.ps1` 起便携 Nginx（8082，加载生产 vhost）→ 跑编码/导入/i18n/CSS 自检 +
 模块图 + 冒烟（全部经 Nginx）→ 无头 Edge 打开同源探针页 `zz-smoke-advice.html`，登录并渲染，
-截图并把 DOM 统计写回 `/healthz?ui=...` 供脚本断言 → **清库、以默认 30 秒冷却重启后端跑
+截图并把 DOM 统计写回 `/healthz?ui=...` 供脚本断言 → **清库、以默认 10 秒冷却重启后端跑
 `tests/e2e_http.py`** → 关服务。截图落在 `.tmp\accept\advice-*.png`。
 
-六档浏览器场景：
+七档浏览器场景：
 
 | 档位 | 视口 | 断言要点 |
 | --- | --- | --- |
@@ -149,14 +149,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 | `deviation` | 1440×1240 | 偏离弹窗打开、提供 3 种策略 |
 | `records` | 1440×1240 | 真点“新增记录”并提交（断言发出 `POST /api/records` 且 201）、保存后弹窗关闭、默认区间为最近 7 天、列表有行 |
 | `plan` | 1440×1240 | 每日方案行 ≥2、每天迷你时间图条数 ≥3 |
+| `refused` | 1440×1240 | 早餐卡片提供「不想吃」按钮 → 真点提交打卡（`POST /api/advice/checkin`）、晚餐精确提前 60 分钟、午餐不推后（有空间时提前）、按钮进入激活态、点「吃了」撤销后恢复、快速模式说明固定单日并隐藏天数滑块 |
 | `mobile` | 390×900 | 窄屏改用纵向时间图、时间图条 ≥4、无横向溢出 |
 
-每一档都会顺带跑三条“用户看得到”的回归护栏，任何一条不过整体失败：
+每一档都会顺带跑四条“用户看得到”的回归护栏，任何一条不过整体失败：
 
 1. **没有漏翻的 i18n key**：正文里不允许出现 `advice.* / records.* / common.*` 这类原始 key。
 2. **没有未填充的占位符**：正文里不允许出现 `{streak}` 这种花括号参数（`tp()` 漏传参数的典型症状）。
 3. **时间条不压字**：时间图的每个条都不能与时间刻度或“睡眠/早餐/午餐/晚餐”图例的矩形相交
    （用 `getBoundingClientRect` 判定，正是用户报过的“示例 UI 和时间图交叉”）。
+4. **登录失败带剩余次数预警**：探针故意用错密码登一次，断言 401 响应里有 `remaining_attempts`
+   且渲染出的提示含有剩余次数；随后用正确密码再登一次把失败计数清零（否则连跑几次会把账号锁掉），
+   锁定时改成锁定倒计时文案（`error.account_locked`）同样是断言项。
 
 ## 前端开发硬约束
 

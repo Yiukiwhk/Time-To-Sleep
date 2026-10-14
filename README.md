@@ -44,8 +44,8 @@
 ### 安全与防护
 
 - **Cookie 会话**：HttpOnly 会话 Cookie，用户端与管理后台互相隔离，30 天 / 12 小时两档有效期。
-- **登录防爆破**：连续失败 5 次锁定 15 分钟，失败计数带时间窗口。
-- **写入冷却**：同一用户 30 秒内不能重复提交写入，前端倒计时 + 后端 `429 error.write_too_fast` 双重限制。
+- **登录防爆破**：连续失败 5 次锁定 15 分钟，失败计数带时间窗口；每次失败都会提示「还可尝试几次」，锁定那次直接显示解锁倒计时。
+- **写入冷却**：同一用户 10 秒内不能重复提交写入，前端倒计时 + 后端 `429 error.write_too_fast` 双重限制。
 - **越权按不存在处理**：访问他人资源返回 404 而非 403，避免探测资源是否存在。
 - **输入长度限制**：用户名、密码、备注等都有服务端上限（密码上限即 bcrypt 的 72 字节）。
 - **数据保留**：每个用户仅保留最近 6 个月记录，过期会话与登录记录由定时任务清理。
@@ -141,7 +141,7 @@ sleep-schedule/
 | `GET` | `/api/auth/me` | 当前登录用户（`/api/auth/admin/me` 为管理员视角） |
 | `POST` | `/api/auth/logout` · `/api/auth/password` | 退出登录（含管理员端口）/ 改密码（所有会话失效） |
 | `GET` | `/api/records` | 睡眠记录列表（`start_date`、`end_date`、分页） |
-| `POST` | `/api/records` | 新增睡眠记录（30 秒写入冷却） |
+| `POST` | `/api/records` | 新增睡眠记录（10 秒写入冷却） |
 | `GET/PUT/DELETE` | `/api/records/{record_id}` | 单条记录的读取 / 部分更新 / 删除（`batch-delete` 批量删除） |
 | `GET` | `/api/records/meta` | 可录入范围、保留策略与冷却剩余时间 |
 | `POST` | `/api/advice` | 生成 1–30 天作息建议（可存为当前计划） |
@@ -165,7 +165,7 @@ backend/.venv/Scripts/python.exe tests/e2e_http.py http://127.0.0.1:8000
 backend/.venv/Scripts/python.exe scripts/smoke_http.py http://127.0.0.1:8000
 # 静态检查：i18n key 覆盖、CSS 类名覆盖、漏写的 import
 python scripts/check_i18n_keys.py && python scripts/check_css_classes.py && python scripts/check_frontend_imports.py
-# 一键本地整体验收（起服务 + 便携 Nginx + 无头 Edge 六档场景 + e2e）
+# 一键本地整体验收（起服务 + 便携 Nginx + 无头 Edge 七档场景 + e2e）
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps1
 ```
 

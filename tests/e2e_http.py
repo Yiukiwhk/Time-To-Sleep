@@ -144,7 +144,7 @@ def main() -> int:
     status, body, _ = alice.get("/api/records")
     check("初始记录为空", status == 200 and body.get("total") == 0, f"{status} {body}")
 
-    # 格式校验先于 30 秒防重（429 优先于 422），因此以下两条要在首次写入之前验证
+    # 格式校验先于 10 秒防重（429 优先于 422），因此以下两条要在首次写入之前验证
     status, body, _ = alice.post("/api/records", {"sleep_time": "25:00", "wake_time": "09:00", "record_date": "2025-10-02"})
     check("非法时间被拒(422)", status == 422, f"{status} {body}")
 
@@ -366,10 +366,23 @@ def main() -> int:
     print("\n[9] 登录失败锁定")
     victim = Client()
     codes = []
+    remaining = []
+    locked_body = {}
     for _ in range(7):
-        status, _, _ = victim.post("/api/auth/login", {"username": user_b, "password": "wrong-pass"})
+        status, body, _ = victim.post("/api/auth/login", {"username": user_b, "password": "wrong-pass"})
         codes.append(status)
+        if status == 401 and isinstance(body, dict) and "remaining_attempts" in body:
+            remaining.append(body["remaining_attempts"])
+            if body["remaining_attempts"] == 0:
+                locked_body = body
     check("连续失败触发锁定(429)", 429 in codes, str(codes))
+    # 5 次上限：4/3/2/1 次预警，第 5 次直接锁定（remaining=0 + 锁定剩余时间）
+    check("失败响应带剩余次数预警", remaining == [4, 3, 2, 1, 0], str(remaining))
+    check(
+        "触发锁定那次带锁定剩余时间",
+        locked_body.get("locked_minutes", 0) >= 1 and locked_body.get("retry_after_seconds", 0) > 0,
+        str(locked_body),
+    )
     status, body, _ = admin.post(f"/api/admin/users/{bob_id}/unlock")
     check("管理员解锁账号", status == 200, f"{status} {body}")
     status, body, _ = bob.post("/api/auth/login", {"username": user_b, "password": "User@12345"})

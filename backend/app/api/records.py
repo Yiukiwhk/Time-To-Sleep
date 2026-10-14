@@ -2,7 +2,7 @@
 
 要点：
   * 所有查询强制带 user_id 过滤，杜绝越权访问他人数据；
-  * 写入（新增/修改）受 30 秒防重复提交限制；
+  * 写入（新增/修改）受 10 秒防重复提交限制；
   * 列表一律分页，禁止一次性加载全部数据。
 """
 from __future__ import annotations
@@ -46,7 +46,7 @@ def _cooldown_remaining(user: User) -> int:
 
 
 def _ensure_writable(user: User) -> None:
-    """30 秒内不允许重复提交写入请求。"""
+    """10 秒内不允许重复提交写入请求。"""
     remaining = _cooldown_remaining(user)
     if remaining > 0:
         raise ApiError(

@@ -1,4 +1,4 @@
-# Upload the corrected frontend + backend code + vhost and run
+﻿# Upload the corrected frontend + backend code + vhost and run
 # deploy/remote_apply_fix.sh (which restarts the systemd service and verifies).
 #
 #   .\deploy\apply_fix.ps1
@@ -63,15 +63,20 @@ if (-not (Test-Path -LiteralPath (Join-Path $root "frontend\user\index.html"))) 
     throw "project root not found (expected frontend\user\index.html under $root)"
 }
 
-# Python modules changed by the adaptive-v2 advice engine.  Keep in sync with the
-# rollback list in deploy/remote_apply_fix.sh; the release only touches these.
+# Python modules shipped by a release: the adaptive-v2 advice engine, the auth
+# guard (login-failure warning), the records cooldown and the config defaults.
+# Keep in sync with the rollback list in deploy/remote_apply_fix.sh.
 $backendFiles = @(
     "app\api\advice.py",
+    "app\api\auth.py",
+    "app\api\records.py",
+    "app\config.py",
     "app\db.py",
     "app\models.py",
     "app\schemas.py",
     "app\services\advice.py",
-    "app\services\advice_plan.py"
+    "app\services\advice_plan.py",
+    "app\services\auth_service.py"
 )
 
 $askpass = Join-Path $env:TEMP "dsh_askpass.bat"

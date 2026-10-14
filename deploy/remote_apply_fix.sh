@@ -22,6 +22,11 @@ APP_DIR=/opt/sleep-schedule
 VHOST=/etc/nginx/sites-available/sleep-schedule
 BACKUP="$VHOST.dsh-backup"
 
+# Parse the whole file before touching anything: a syntax error half way through
+# a release leaves the site in a mixed state (frontend copied, backend not).  The
+# local development machine has no bash, so this is the first place it can run.
+bash -n "$0" || { echo "!! syntax error in $0"; exit 1; }
+
 echo "== 1. static files =="
 test -d "$STAGE" || { echo "missing stage dir $STAGE"; exit 1; }
 sudo_run mkdir -p "$WEBROOT"
@@ -49,9 +54,10 @@ if [ -d "$STAGE/frontend" ]; then
     sudo_run chmod -R a+rX "$APP_DIR/frontend"
 fi
 
-# Python modules rewritten by the adaptive-v2 advice engine.  Must stay in sync
-# with $backendFiles in deploy/apply_fix.ps1.
-BACKEND_FILES="app/api/advice.py app/db.py app/models.py app/schemas.py app/services/advice.py app/services/advice_plan.py"
+# Python modules shipped by a release: the adaptive-v2 advice engine, the auth
+# guard (login-failure warning), the records cooldown and the config defaults.
+# Must stay in sync with $backendFiles in deploy/apply_fix.ps1.
+BACKEND_FILES="app/api/advice.py app/api/auth.py app/api/records.py app/config.py app/db.py app/models.py app/schemas.py app/services/advice.py app/services/advice_plan.py app/services/auth_service.py"
 
 echo "== 2b. backend code =="
 BACKEND_BACKUP=/tmp/sleep-backend-backup
@@ -230,6 +236,28 @@ case "$schema" in
     *'"meal_checks_has_refused": true'*) echo "  ok   meal_checks.refused present" ;;
     *) echo "  FAIL meal_checks.refused missing"; fail=$((fail + 1)) ;;
 esac
+
+# The deployed code itself must carry this release: a 10 second write cooldown and
+# the "N attempts left" warning on a failed login.  Checking the shipped files (not
+# just the HTTP surface) catches a half-applied release where the service still
+# answers from bytecode of the previous build.
+echo "== 4e. deployed code carries the 10s cooldown and the login warning =="
+grep_file() {  # grep_file <label> <file> <needle>
+    local label="$1" file="$2" needle="$3" hits
+    hits=$(grep -c -- "$needle" "$file" 2>/dev/null || true)
+    if [ "${hits:-0}" -ge 1 ]; then
+        printf '  ok   %-30s %s\n' "$label" "$needle"
+    else
+        printf '  FAIL %-30s %s missing in %s\n' "$label" "$needle" "$file"
+        fail=$((fail + 1))
+    fi
+}
+grep_file "config: 10s cooldown"    "$APP_DIR/backend/app/config.py"                 'WRITE_COOLDOWN_SECONDS", 10'
+grep_file "records: 10s docstring"  "$APP_DIR/backend/app/api/records.py"            '10 秒防重复提交'
+grep_file "auth service: warning"   "$APP_DIR/backend/app/services/auth_service.py"  'def failure_warning'
+grep_file "api auth: warning used"  "$APP_DIR/backend/app/api/auth.py"               'failure_warning('
+grep_file "i18n: warning key"       "$WEBROOT/shared/i18n.js"                        'error.invalid_credentials_attempts'
+grep_file "i18n: warning branch"    "$WEBROOT/shared/i18n.js"                        'remaining_attempts'
 
 echo
 if [ "$fail" -eq 0 ]; then

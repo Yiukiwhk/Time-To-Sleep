@@ -85,7 +85,7 @@ sudo nginx -t && sudo systemctl reload nginx
 | `deploy/ssh_run.ps1` | 在服务器上执行任意命令（口令经 askpass），例如只读诊断。 |
 | `deploy/verify_nginx.ps1` | 本地用便携 Nginx 验证 vhost 路由；`-WithBackend` 连真接口。 |
 | `deploy/serve_local.ps1` | 起/停本地便携 Nginx（默认 8082，加载生产 vhost），供本地验收与调试。 |
-| `deploy/accept_local.ps1` | 一键本地验收（六档浏览器场景 + e2e），见 [DEVELOPMENT.md](DEVELOPMENT.md)。 |
+| `deploy/accept_local.ps1` | 一键本地验收（七档浏览器场景 + e2e），见 [DEVELOPMENT.md](DEVELOPMENT.md)。 |
 | `deploy/remote_diag.sh`、`remote_nginx.sh`、`remote_nginx_diag.sh`、`remote_check*.sh`、`diff_deployed.py`、`schema_check.py`、`compare_encoding.py` | 只读诊断与核对工具（服务状态、vhost、部署文件与本地是否一致、数据库 schema、线上与本地编码差异）。 |
 
 连接参数不写在脚本里：复制 `deploy/local.settings.example.ps1` 为 `deploy/local.settings.ps1`
@@ -116,7 +116,7 @@ sudo nginx -t && sudo systemctl reload nginx
 8. **截图留档**：无头 Edge 跑同源探针页，把用户端/建议页/管理后台截图存到 `docs/screenshots/`，
    文件名沿用现有命名（`advice-*.png`、`live-*.png`）。
 
-> 线上保留了 30 秒写入冷却，探针页连续铺多天记录时只有第 1 条落库（页面日志会显示
+> 线上保留了 10 秒写入冷却，探针页连续铺多天记录时只有第 1 条落库（页面日志会显示
 > `429 (冷却中)`），所以线上截图里的“样本/连续未吃早餐”比本地稀疏；完整行为
 > （午餐前移、提示横幅、>90 分偏离弹窗）由本地验收（冷却关闭）覆盖。
 
@@ -157,7 +157,7 @@ sudo nginx -t && sudo systemctl reload nginx
 - **单机单进程 SQLite**：不支持多实例/多 worker 水平扩展；写入串行化，高并发写入不是目标场景。
 - **未启用 HTTPS**：按需求保持明文 HTTP。若部署到公网，建议在前面加一层做 TLS 终止的反向代理，
   并把站点域名加入 `SSP_CORS_ORIGINS`。
-- **写入冷却 30 秒**：每个用户两次写入之间默认有 30 秒冷却（`SSP_WRITE_COOLDOWN_SECONDS`），
+- **写入冷却 10 秒**：每个用户两次写入之间默认有 10 秒冷却（`SSP_WRITE_COOLDOWN_SECONDS`），
   命中时返回 429 与 `error.write_too_fast`。这是刻意保留的防刷与防误操作限制，脚本铺数据时
   需要临时设为 0。
 - 管理员密码第 2/3 段只能在首次建库时通过环境变量设置，后台只能改第 1 段。

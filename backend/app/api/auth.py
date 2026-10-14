@@ -28,6 +28,16 @@ def _find_user(db: Session, username: str) -> User | None:
     return db.execute(select(User).where(User.username == username)).scalar_one_or_none()
 
 
+def _credentials_error(failures: int, locked_seconds: int = 0, *, known: bool = True) -> ApiError:
+    """401 凭据错误：附带"还剩几次机会"（刚锁定时附带锁定剩余时间）。"""
+    return ApiError(
+        401,
+        "error.invalid_credentials",
+        code="error.invalid_credentials",
+        extra=auth_service.failure_warning(failures, locked_seconds, known=known),
+    )
+
+
 @router.post("/auth/login", response_model=UserPublic)
 def login(
     payload: LoginRequest,
@@ -39,8 +49,8 @@ def login(
     """普通用户登录（账号密码 + 失败次数限制 + 30 天 Cookie）。"""
     user = _find_user(db, payload.username)
     if user is None:
-        auth_service.register_failure(None, username=payload.username, ip=ctx.ip)
-        raise ApiError(401, "error.invalid_credentials", code="error.invalid_credentials")
+        failures, locked = auth_service.register_failure(None, username=payload.username, ip=ctx.ip)
+        raise _credentials_error(failures, locked, known=False)
 
     auth_service.ensure_not_locked(user)
     if not user.is_active:
@@ -51,8 +61,8 @@ def login(
         raise ApiError(403, "error.use_admin_login", code="error.use_admin_login")
 
     if not verify_password(payload.password, user.password_hash):
-        auth_service.register_failure(user, username=user.username, ip=ctx.ip)
-        raise ApiError(401, "error.invalid_credentials", code="error.invalid_credentials")
+        failures, locked = auth_service.register_failure(user, username=user.username, ip=ctx.ip)
+        raise _credentials_error(failures, locked)
 
     auth_service.register_success(user, ip=ctx.ip, scope="user")
     # 普通用户会话与管理后台会话隔离
@@ -75,8 +85,10 @@ def admin_login(
     """管理员多重密码登录：所有密码段必须全部校验通过。"""
     user = _find_user(db, payload.username)
     if user is None or not user.is_admin:
-        auth_service.register_failure(None, username=payload.username, ip=ctx.ip, event="admin login")
-        raise ApiError(401, "error.invalid_credentials", code="error.invalid_credentials")
+        failures, locked = auth_service.register_failure(
+            None, username=payload.username, ip=ctx.ip, event="admin login"
+        )
+        raise _credentials_error(failures, locked, known=False)
 
     auth_service.ensure_not_locked(user)
     if not user.is_active:
@@ -95,12 +107,14 @@ def admin_login(
     )
     expected_parts = len(parts)        # 第 1 段为账号密码，其余为额外密码段
     if len(payload.passwords) < expected_parts:
-        auth_service.register_failure(user, username=user.username, ip=ctx.ip, event="admin login")
+        failures, locked = auth_service.register_failure(
+            user, username=user.username, ip=ctx.ip, event="admin login"
+        )
         raise ApiError(
             401,
             "error.admin_password_parts",
             code="error.admin_password_parts",
-            extra={"required_parts": expected_parts},
+            extra={"required_parts": expected_parts, **auth_service.failure_warning(failures, locked)},
         )
 
     ok = verify_password(payload.passwords[0], user.password_hash)
@@ -111,8 +125,10 @@ def admin_login(
             ok = False
 
     if not ok:
-        auth_service.register_failure(user, username=user.username, ip=ctx.ip, event="admin login")
-        raise ApiError(401, "error.invalid_credentials", code="error.invalid_credentials")
+        failures, locked = auth_service.register_failure(
+            user, username=user.username, ip=ctx.ip, event="admin login"
+        )
+        raise _credentials_error(failures, locked)
 
     auth_service.register_success(user, ip=ctx.ip, scope="admin")
     sessions.create_session(

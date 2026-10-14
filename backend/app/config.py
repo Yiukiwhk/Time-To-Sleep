@@ -62,7 +62,7 @@ class Settings:
     LOGIN_FAILURE_WINDOW_SECONDS: int = _env_int("LOGIN_FAILURE_WINDOW_SECONDS", 15 * 60)
 
     # ---------- 写入节流 ----------
-    WRITE_COOLDOWN_SECONDS: int = _env_int("WRITE_COOLDOWN_SECONDS", 30)
+    WRITE_COOLDOWN_SECONDS: int = _env_int("WRITE_COOLDOWN_SECONDS", 10)
 
     # ---------- 数据保留 ----------
     RETENTION_MONTHS: int = _env_int("RETENTION_MONTHS", 6)

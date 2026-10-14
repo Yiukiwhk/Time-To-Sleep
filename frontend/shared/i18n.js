@@ -455,6 +455,7 @@ export const DICTS = {
     "error.not_authenticated": "登录状态已失效，请重新登录",
     "error.admin_only": "需要管理员权限",
     "error.invalid_credentials": "用户名或密码错误",
+    "error.invalid_credentials_attempts": "用户名或密码错误，还可尝试 {remaining} 次",
     "error.account_disabled": "账号已被停用，请联系管理员",
     "error.account_locked": "账号已被锁定，请在 {minutes} 分钟后重试",
     "error.use_admin_login": "管理员请使用管理后台入口登录",
@@ -940,6 +941,7 @@ export const DICTS = {
     "error.not_authenticated": "Session expired, please sign in again",
     "error.admin_only": "Administrator permission required",
     "error.invalid_credentials": "Wrong username or password",
+    "error.invalid_credentials_attempts": "Wrong username or password — {remaining} attempt(s) left",
     "error.account_disabled": "Account disabled, please contact an administrator",
     "error.account_locked": "Account locked, retry in {minutes} minutes",
     "error.use_admin_login": "Administrators must sign in from the admin console",
@@ -1040,14 +1042,15 @@ export function t(key, params) {
 
 /**
  * 把后端错误体翻译成可读文案。
- * 后端 detail 是 i18n key，可能带 extra（如 retry_after_seconds / required_parts）。
+ * 后端 detail 是 i18n key，可能带 extra（如 retry_after_seconds / required_parts /
+ * remaining_attempts：登录失败时告诉用户还剩几次机会）。
  */
 export function translateError(body, fallbackKey = "error.server") {
   if (!body) return t(fallbackKey);
   if (typeof body === "string") {
     return body.startsWith("error.") ? t(body) : body;
   }
-  const key = body.detail || body.code || fallbackKey;
+  let key = body.detail || body.code || fallbackKey;
   const params = {};
   if (body.retry_after_seconds !== undefined) {
     params.minutes = Math.max(1, Math.ceil(Number(body.retry_after_seconds) / 60));
@@ -1056,6 +1059,15 @@ export function translateError(body, fallbackKey = "error.server") {
   if (body.required_parts !== undefined) params.parts = body.required_parts;
   if (body.cooldown_seconds !== undefined && params.seconds === undefined) {
     params.seconds = body.cooldown_seconds;
+  }
+  // 登录失败预警：还有机会就报剩余次数；这次的失败刚好触发锁定就改说锁定多久
+  if (key === "error.invalid_credentials" && body.remaining_attempts !== undefined) {
+    params.remaining = body.remaining_attempts;
+    if (Number(body.remaining_attempts) > 0) {
+      key = "error.invalid_credentials_attempts";
+    } else if (body.retry_after_seconds !== undefined) {
+      key = "error.account_locked";
+    }
   }
   if (body.field) {
     const fieldText = t(`field.${String(body.field).split(".").pop()}`);

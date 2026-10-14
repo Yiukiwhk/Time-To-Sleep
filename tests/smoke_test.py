@@ -203,10 +203,20 @@ def main() -> int:
         print("\n[9] 登录失败锁定")
         victim = TestClient(app)
         codes = []
+        remaining = []
         for _ in range(7):
             rr = victim.post("/api/auth/login", json={"username": "bob", "password": "wrong-pass-1"})
             codes.append(rr.status_code)
+            if rr.status_code == 401 and "remaining_attempts" in rr.json():
+                remaining.append(rr.json()["remaining_attempts"])
         check("连续失败触发锁定(429)", 429 in codes, str(codes))
+        check("失败响应带剩余次数预警", remaining == [4, 3, 2, 1, 0], str(remaining))
+        rr = victim.post("/api/auth/login", json={"username": "no-such-user", "password": "wrong-pass-1"})
+        check(
+            "陌生用户名不报剩余次数",
+            rr.status_code == 401 and "remaining_attempts" not in rr.json(),
+            rr.text[:200],
+        )
 
         print("\n[10] 注销会话")
         r = user2.get("/api/auth/me")

@@ -19,23 +19,23 @@
 {
   "detail": "error.write_too_fast",
   "code": "error.write_too_fast",
-  "retry_after_seconds": 24,
-  "cooldown_seconds": 30
+  "retry_after_seconds": 4,
+  "cooldown_seconds": 10
 }
 ```
 
 - `detail` / `code` 是**可直接用于 i18n 的文案键**（前端 `t()` 渲染），不是给人看的中文句子。
-- `extra` 字段按需附加（如 429 的 `retry_after_seconds`、401 的 `required_parts`）。
+- `extra` 字段按需附加（如 429 的 `retry_after_seconds`、401 的 `required_parts` / `remaining_attempts`）。
 
 | 状态码 | 含义 | 典型 `code` |
 | --- | --- | --- |
 | 400 | 参数语义错误（格式对但取值不合理） | `error.nothing_to_update`、`error.target_requires_both`、`error.wrong_current_password`、`error.password_unchanged`、`error.invalid_date`、`error.date_in_future`、`error.date_too_old`、`error.invalid_time`、`error.nothing_selected`、`error.cannot_disable_self`、`error.cannot_delete_self`、`error.last_admin`、`error.admin_parts_not_allowed`、`error.admin_cannot_deactivate` |
-| 401 | 未登录或凭据错误 | `error.invalid_credentials`、`error.admin_password_parts`、`error.unauthorized` |
+| 401 | 未登录或凭据错误 | `error.invalid_credentials`（附 `remaining_attempts` / `max_attempts`，刚锁定时还有 `retry_after_seconds` / `locked_minutes`）、`error.admin_password_parts`、`error.unauthorized` |
 | 403 | 已识别但不允许（账号停用、走错登录口） | `error.account_disabled`、`error.use_admin_login`、`error.forbidden` |
 | 404 | 资源不存在**或无权访问** | `error.record_not_found`、`error.user_not_found`、`error.deletion_not_found`、`error.not_found` |
 | 409 | 状态冲突（重名、重复提交） | `error.username_taken`、`error.deletion_pending`、`error.deletion_already_handled` |
 | 422 | 请求体不符合 schema（缺字段、超长、枚举非法） | `error.invalid_input`，并附 `field` / `message` / `errors[]` |
-| 429 | 触发写入冷却 | `error.write_too_fast`，响应带 `Retry-After` 头 |
+| 429 | 触发写入冷却 / 账号锁定 | `error.write_too_fast`、`error.account_locked`，响应带 `Retry-After` 头 |
 | 500 | 未预期异常 | `error.server` |
 
 两个刻意的设计：
@@ -58,7 +58,7 @@
 
 - 列表接口统一接受 `page`（默认 1）与 `page_size`（默认 20，最大 100），返回
   `{items, total, page, page_size, pages}`。
-- 所有**写操作（POST / PUT / PATCH / DELETE）**受同一用户 30 秒冷却限制
+- 所有**写操作（POST / PUT / PATCH / DELETE）**受同一用户 10 秒冷却限制
   （`SSP_WRITE_COOLDOWN_SECONDS`），命中返回 429 与 `error.write_too_fast`；剩余秒数也可从
   `GET /api/records/meta` 的 `cooldown_remaining_seconds` 读到。
 
@@ -95,8 +95,34 @@
 ```
 
 - `remember: true` → 会话 30 天；否则 12 小时（见 `SESSION_TTL_*`）。
-- 连续失败 5 次锁定 15 分钟（`error.account_locked` 语义由 `error.invalid_credentials` 之外的
-  403 分支返回），锁定与窗口由 `SSP_LOGIN_MAX_FAILURES` / `SSP_LOGIN_LOCK_SECONDS` 控制。
+- 连续失败 5 次锁定 15 分钟（`SSP_LOGIN_MAX_FAILURES` / `SSP_LOGIN_LOCK_SECONDS`），
+  失败的 401 会带**剩余次数预警**，前端显示「用户名或密码错误，还可尝试 N 次」：
+
+  ```json
+  {
+    "detail": "error.invalid_credentials",
+    "code": "error.invalid_credentials",
+    "remaining_attempts": 4,
+    "max_attempts": 5
+  }
+  ```
+
+  刚好触发锁定的那次 `remaining_attempts` 为 `0`，并附上解锁倒计时（前端改说「账号已锁定」）；
+  锁定期内再登录返回 429 `error.account_locked`（带 `Retry-After` 头）：
+
+  ```json
+  {
+    "detail": "error.invalid_credentials",
+    "code": "error.invalid_credentials",
+    "remaining_attempts": 0,
+    "max_attempts": 5,
+    "retry_after_seconds": 900,
+    "locked_minutes": 15
+  }
+  ```
+
+  用户名不存在时同样记一次失败（防爆破），但**不带** `remaining_attempts`——那里没有账号可锁，
+  给倒计时是误导。
 
 ### `POST /api/auth/admin/login`
 
@@ -197,7 +223,7 @@
 ```
 
 `duration_minutes` 由服务端按跨零点规则计算（服务端计算，客户端不用传）。
-成功返回 **201**；30 秒内重复写入返回 429 `error.write_too_fast`。
+成功返回 **201**；10 秒内重复写入返回 429 `error.write_too_fast`。
 
 ### 记录查询与维护
 
@@ -324,7 +350,7 @@
 
 ### `POST /api/advice/checkin`
 
-三餐卡片的“已吃 / 跳过 / 不想吃”一键确认，会写回当天记录（因此受 30 秒写入冷却限制）。
+三餐卡片的“已吃 / 跳过 / 不想吃”一键确认，会写回当天记录（因此受 10 秒写入冷却限制）。
 
 ```json
 {

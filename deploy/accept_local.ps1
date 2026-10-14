@@ -5,8 +5,8 @@
 #   4) headless Edge opens a same-origin probe page: seeds data, logs in, renders the
 #      advice page, screenshots it, and reports the rendered DOM back through
 #      /healthz?ui=... (lands in the backend access log) for scripted assertions
-#   5) restart the backend with the DEFAULT 30s write cooldown on a fresh DB and run
-#      tests/e2e_http.py (it asserts that a second write within 30s is rejected)
+#   5) restart the backend with the DEFAULT 10s write cooldown on a fresh DB and run
+#      tests/e2e_http.py (it asserts that a second write within 10s is rejected)
 #
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps1
 #   ... -KeepRunning      keep both servers up after the checks
@@ -73,9 +73,9 @@ function Wait-Http([string]$Url, [int]$Seconds) {
     return $false
 }
 
-# Phase A runs with the 30s per-user write cooldown disabled so the probe page can seed
+# Phase A runs with the 10s per-user write cooldown disabled so the probe page can seed
 # five days of records back to back. The e2e suite asserts that the cooldown DOES reject a
-# second write within 30s, so phase B restarts the backend with the default cooldown.
+# second write within 10s, so phase B restarts the backend with the default cooldown.
 function Start-Backend([switch]$CooldownOff, [string]$Tag) {
     if ($CooldownOff) { $env:SSP_WRITE_COOLDOWN_SECONDS = "0" }
     else { Remove-Item Env:\SSP_WRITE_COOLDOWN_SECONDS -ErrorAction SilentlyContinue }
@@ -163,6 +163,16 @@ if (-not $SkipBrowser) {
             # 回归护栏：i18n 漏翻会原样显示 key（records.meal.undefined 就是这么被用户看到的）
             Check "[$mode] no leaked i18n keys" (@($json.leaked_keys).Count -eq 0) ("leaked=" + (@($json.leaked_keys) -join ", "))
             Check "[$mode] no unfilled template placeholders" (@($json.leaked_placeholders).Count -eq 0) ("placeholders=" + (@($json.leaked_placeholders) -join ", "))
+            # 用户需求：登录失败要预警"还剩几次机会"；第 5 次失败直接锁定，文案改成锁定倒计时
+            if ($json.login_warning) {
+                $lw = $json.login_warning
+                $hasRemaining = ($null -ne $lw.remaining) -and ([int]$lw.remaining -ge 0) -and ([int]$lw.max -ge 1)
+                Check "[$mode] failed login reports remaining attempts" (($lw.status -eq 401) -and $hasRemaining) ("warning=" + ($lw | ConvertTo-Json -Compress))
+                Check "[$mode] login warning text shows the remaining tries" ("$($lw.text)" -match "还可尝试|attempt") ("text=" + $lw.text)
+                Check "[$mode] lock-out text replaces the countdown" ("$($json.login_locked_text)" -match "锁定|locked") ("text=" + $json.login_locked_text)
+            } else {
+                Check "[$mode] probe reported the login warning" $false "login_warning missing from the render summary"
+            }
             # 回归护栏：时间条不能压到时间刻度或"睡眠/早餐/午餐/晚餐"示例上
             Check "[$mode] timeline bars clear of axis/legend" (@($json.overlaps).Count -eq 0) ("overlaps=" + (@($json.overlaps) -join ", "))
             # 回归护栏：只数 DOM 节点会漏掉"条被压成细线、文字被裁光"，这里量几何
@@ -209,7 +219,34 @@ if (-not $SkipBrowser) {
             }
             if ($mode -eq "base") {
                 Check "timeline bars drawn" ($json.timeline_bars -ge 4) ("bars=" + $json.timeline_bars)
-                Check "now marker drawn" ($json.timeline_now -ge 1) ("now=" + $json.timeline_now)
+                # 「现在」标线是有条件的：只有当前钟点落在时间轴窗口内才该画出来。
+                # 时间轴可能跨零点（例如 06:04 → 02:04），所以先把"现在"换算到
+                # "距轴起点多少分钟"，再看它有没有超出 span——轴外的凌晨时段
+                # （02:04–06:04 这种）本来就不该有标线，画了才是 bug。
+                $axis = $json.timeline_axis
+                $axisStart = -1
+                if ($axis -and $axis.start) {
+                    $axisParts = "$($axis.start)".Split(":")
+                    if ($axisParts.Count -ge 2) { $axisStart = [int]$axisParts[0] * 60 + [int]$axisParts[1] }
+                }
+                $axisSpan = 0
+                if ($axis -and $axis.span) { $axisSpan = [int]$axis.span }
+                if ($axisStart -lt 0 -or $axisSpan -le 0) {
+                    Check "now marker reported with its axis window" $false "timeline_axis missing from the render summary"
+                }
+                else {
+                    $now = Get-Date
+                    $nowMinutes = $now.Hour * 60 + $now.Minute
+                    $nowRel = ((($nowMinutes - $axisStart) % 1440) + 1440) % 1440
+                    $axisInfo = "now=" + $json.timeline_now + " axis=" + $axis.start + ".." + $axis.end + " span=" + $axisSpan + " clock=" + $now.ToString("HH:mm")
+                    if ($nowRel -le $axisSpan) {
+                        Check "now marker drawn" ($json.timeline_now -ge 1) $axisInfo
+                    }
+                    else {
+                        # 钟点在轴外：反过来断言标线没有出现（出现就说明画错位置了）
+                        Check "now marker hidden outside the axis window" ([int]$json.timeline_now -eq 0) $axisInfo
+                    }
+                }
                 Check "today card present" ($json.today_cards -ge 1) ("cards=" + $json.today_cards)
                 Check "meal check-in buttons (>=7: eaten/skipped/refused + lunch + dinner)" ($json.checkin_buttons -ge 7) ("buttons=" + $json.checkin_buttons)
                 Check "sidebar nav items (3)" ($json.nav_items -eq 3) ("nav=" + $json.nav_items)
@@ -295,7 +332,7 @@ if (-not $SkipBrowser) {
 }
 
 if (-not $BrowserOnly) {
-Write-Host "== phase B: restart backend with the default 30s write cooldown, run e2e =="
+Write-Host "== phase B: restart backend with the default 10s write cooldown, run e2e =="
 Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue
 Stop-Listener $BackendPort
 Remove-Item (Join-Path $accept "app.db*") -Force -ErrorAction SilentlyContinue
