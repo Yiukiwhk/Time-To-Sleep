@@ -35,7 +35,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest
+          python -m pip install -r requirements.txt
+          # 测试依赖：pytest + httpx（TestClient 需要；httpx2 是 starlette 1.8+ 的替代品，
+          # requirements.txt 已把 starlette 钉在 1.7.0，二者不能混装）
+          python -m pip install pytest httpx==0.28.1
 
       - name: 静态自检（编码 / 导入 / i18n / CSS 类）
         run: |

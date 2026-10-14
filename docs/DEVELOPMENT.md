@@ -77,6 +77,11 @@ backend\.venv\Scripts\python.exe run.py --reload
 
 ## 测试与自检命令
 
+> 测试依赖不在 `requirements.txt` 里（那是最小运行环境），需要额外装一次：
+> `python -m pip install pytest httpx==0.28.1`。
+> 其中 `httpx` 是 FastAPI/Starlette `TestClient` 的依赖，`starlette` 已在 `requirements.txt`
+> 钉在 `1.7.0`——`starlette 1.8+` 要求换成 `httpx2`，不钉版本时新环境会装到 1.8 导致测试无法收集。
+
 ```bash
 # 1) 后端接口冒烟：进程内 TestClient，使用独立临时库，不碰 data/app.db
 backend/.venv/Scripts/python.exe tests/smoke_test.py
