@@ -447,7 +447,17 @@ def test_timeline_wraps_around_midnight() -> None:
     morning = [item for item in timeline["items"] if item.get("segment") == "morning"][0]
     assert (morning["start"], morning["end"]) == (0, 120)
     assert (night["start"], night["end"]) == (1140, 1260)
-    assert meals[0]["start_time"] == "08:45" and meals[0]["bar_minutes"] if False else True
+    # 餐次条目：start_time 直接取 best_time，条长由 bar_minutes 换算成分钟落在 [start, end)。
+    # 注意条目里没有 bar_minutes 字段，所以只能断言 end - start —— 这里原来写的是
+    # `assert meals[0]["start_time"] == "08:45" and meals[0]["bar_minutes"] if False else True`：
+    # 被 `if False` 短路掉，实际什么都没断言（而且一旦求值会先 KeyError）。
+    assert meals[0]["meal"] == "breakfast"
+    assert meals[0]["start_time"] == "08:45"
+    assert meals[0]["end_time"] == "09:00"
+    assert meals[0]["end"] - meals[0]["start"] == 30
+    assert meals[1]["meal"] == "lunch"
+    assert meals[1]["start_time"] == "11:30"
+    assert meals[1]["end"] - meals[1]["start"] == 60
 
     earlier = {**day, "date": (TODAY - timedelta(days=3)).isoformat()}
     assert advice_service.day_for([earlier, day], TODAY)["date"] == day["date"]
