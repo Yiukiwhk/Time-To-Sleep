@@ -16,6 +16,13 @@ Safety: this script reads and writes strictly as UTF-8 (the frontend is UTF-8
 without BOM).  Never rewrite these files with Windows PowerShell 5.1 cmdlets such
 as Get-Content/Set-Content without -Encoding UTF8: PowerShell 5.1 decodes UTF-8 as
 the ANSI codepage and silently turns every Chinese comment into mojibake.
+
+Matching is anchored to import specifiers (`from "../shared/..."`,
+`import("../shared/...")`, any number of `../`) instead of a raw text replace: a
+comment that merely *mentions* the bad spelling - e.g. "never write
+../shared/api.js here" - is documentation, not a violation, and must be neither
+rewritten nor reported.  A raw `"../shared/" in text` check flagged exactly those
+comments and failed the file.
 """
 from __future__ import annotations
 
@@ -27,12 +34,30 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
 
-PATTERNS = (
-    ('from "../shared/', 'from "/shared/'),
-    ('from "../../shared/', 'from "/shared/'),
-    ('import("../shared/', 'import("/shared/'),
-    ('import("../../shared/', 'import("/shared/'),
+# `from "../shared/x.js"` / `from "../../shared/x.js"` / `import("../shared/x.js")`
+# `tail` is what follows the `shared/` segment, so the rewrite can prepend `/shared/`
+# without duplicating it.
+RELATIVE_SHARED = re.compile(
+    r'(?P<head>\bfrom\s*|\bimport\s*\(\s*)'
+    r'(?P<quote>["\'])'
+    r'(?:\.\./)+'
+    r'shared/'
+    r'(?P<tail>[^"\']*)'
+    r'(?P=quote)'
 )
+
+
+def to_absolute(text: str) -> str:
+    """Rewrite every relative `.../shared/...` import specifier to `/shared/...`."""
+    return RELATIVE_SHARED.sub(
+        lambda m: f"{m.group('head')}{m.group('quote')}/shared/{m.group('tail')}{m.group('quote')}",
+        text,
+    )
+
+
+def still_relative(text: str) -> bool:
+    """True when an import specifier still points at a relative shared module."""
+    return RELATIVE_SHARED.search(text) is not None
 
 
 def mojibake_lines(text: str) -> list[int]:
@@ -57,9 +82,7 @@ def main() -> int:
     for path in sorted(FRONTEND.rglob("*.js")):
         raw = path.read_bytes()
         text = raw.decode("utf-8")
-        new = text
-        for old, replacement in PATTERNS:
-            new = new.replace(old, replacement)
+        new = to_absolute(text)
 
         bad = mojibake_lines(new)
         if bad:
@@ -72,7 +95,7 @@ def main() -> int:
                 # bytes in, bytes out: the CRLF line endings of the checkout survive untouched.
                 path.write_bytes(new.encode("utf-8"))
 
-        if "../shared/" in new:
+        if still_relative(new):
             remaining.append(str(path.relative_to(ROOT)))
 
     total = len(list(FRONTEND.rglob("*.js")))

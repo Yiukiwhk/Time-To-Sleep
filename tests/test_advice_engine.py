@@ -16,6 +16,10 @@ _TMP = Path(tempfile.mkdtemp(prefix="ssp-advice-test-"))
 os.environ["SSP_DB_PATH"] = str(_TMP / "test.db")
 os.environ["SSP_DATA_DIR"] = str(_TMP)
 os.environ["SSP_LOG_DIR"] = str(_TMP)
+# 必须连 LOG_FILE 一起改：只改 LOG_DIR 的话，日志文件名仍是默认的 <项目根>/logs/app.log，
+# 而 logkit 只会创建 LOG_DIR 指向的目录 —— 在没有 logs/ 的新克隆里会以
+# FileNotFoundError 直接死在 import 阶段（CI 之所以没暴露，是因为 workflow 里两个变量都设了）。
+os.environ["SSP_LOG_FILE"] = str(_TMP / "test.log")
 os.environ["SSP_WRITE_COOLDOWN_SECONDS"] = "0"
 
 BACKEND = Path(__file__).resolve().parents[1] / "backend"
