@@ -258,8 +258,10 @@ grep_file "auth service: warning"   "$APP_DIR/backend/app/services/auth_service.
 grep_file "api auth: warning used"  "$APP_DIR/backend/app/api/auth.py"               'failure_warning('
 grep_file "i18n: warning key"       "$WEBROOT/shared/i18n.js"                        'error.invalid_credentials_attempts'
 grep_file "i18n: warning branch"    "$WEBROOT/shared/i18n.js"                        'remaining_attempts'
+# 注意 needle 里不要出现 [ ] ( ) 这类字符：grep 默认是 BRE，会把 [:32] 当成
+# 字符类，导致「文件里明明有这行」也报 missing（这一条踩过坑）
 grep_file "auth service: reset"     "$APP_DIR/backend/app/services/auth_service.py"  'def count_failures'
-grep_file "api admin: unlock reset" "$APP_DIR/backend/app/api/admin.py"              'LoginAttempt.username == target.username[:32]'
+grep_file "api admin: unlock reset" "$APP_DIR/backend/app/api/admin.py"              'LoginAttempt.username == target.username'
 
 echo
 if [ "$fail" -eq 0 ]; then
