@@ -23,6 +23,7 @@
 - **三餐建议与一键确认**：给出三餐建议窗口，「已吃 / 跳过」写回当天记录；连续跳过早餐会让午餐阶梯式前移。
 - **偏离处理与达标统计**：≤30 分钟不打扰、30–90 分钟静默重算、>90 分钟弹窗；达标率与连续天数不计未记录的日子。
 - **设置与账号**：中英文切换、深浅色主题、三餐开关、自定义目标作息、改密码、提交或撤销注销申请；页脚可查看参考文献。
+
 ### 管理后台 `/admin/`（仅 PC 布局）
 
 - **概览**：用户数、记录数、待审核注销数、锁定账号数，以及一键手动清理。
@@ -30,6 +31,7 @@
 - **多重密码管理员**：新建管理员时必须一并提供额外密码段，登录时逐段校验。
 - **记录查看与注销审批**：按日期区间只读查看某用户的睡眠记录（可删除、**不允许修改**）；注销申请可批准或驳回并留下备注，重复处理会被拒绝。
 - **系统日志**：按级别、事件、关键字、用户检索，带各级别计数。
+
 ### 算法引擎 `adaptive-v2`
 
 - **步长先快后缓**：分段上限（60 → 45 → 30 → 15 分钟）逐段递减，实际步长取「该段上限」与「剩余偏移 ÷ 剩余天数」的较小值。
@@ -38,6 +40,7 @@
 - **偏离三档**：≤30 分钟静默、30–90 分钟静默重算（每天最多一次）、>90 分钟交由用户决策。
 - **计划快照与重算**：生成即落库，偏离判定与达标率都以快照为基准；重算追加新快照，历史可追溯。
 - **可解释的边界**：只有「相位移动速率」与「三餐不作为相位杠杆」两条有文献支撑，其余常量都是工程默认值。细节见 [docs/ALGORITHM.md](docs/ALGORITHM.md)。
+
 ### 安全与防护
 
 - **Cookie 会话**：HttpOnly 会话 Cookie，用户端与管理后台互相隔离，30 天 / 12 小时两档有效期。
@@ -46,6 +49,7 @@
 - **越权按不存在处理**：访问他人资源返回 404 而非 403，避免探测资源是否存在。
 - **输入长度限制**：用户名、密码、备注等都有服务端上限（密码上限即 bcrypt 的 72 字节）。
 - **数据保留**：每个用户仅保留最近 6 个月记录，过期会话与登录记录由定时任务清理。
+
 ## 界面截图
 
 ![建议页桌面态](docs/screenshots/advice-desktop.png)
@@ -64,6 +68,7 @@
 本地窄屏 [advice-mobile.png](docs/screenshots/advice-mobile.png)、用户端登录 [live-user-login.png](docs/screenshots/live-user-login.png)
 与主界面 [live-user-app.png](docs/screenshots/live-user-app.png)、后台登录 [live-admin-login.png](docs/screenshots/live-admin-login.png)
 与概览 [live-admin-dashboard.png](docs/screenshots/live-admin-dashboard.png)。
+
 ## 快速开始
 
 ```bash
@@ -78,6 +83,7 @@ backend/.venv/Scripts/python.exe run.py                      # 默认 0.0.0.0:80
 Windows 也可直接运行 `start.bat`（等价于用虚拟环境解释器启动 `run.py`）。首次启动会自动建库、写入
 内置管理员，并启动「6 个月数据清理」定时任务。启动后：用户端 <http://127.0.0.1:8000/user/>、
 管理后台 <http://127.0.0.1:8000/admin/>、健康检查 <http://127.0.0.1:8000/healthz>（返回 `{"status":"ok"}`）。
+
 ### 内置管理员（默认口令，上线后请立刻修改）
 
 ```text
@@ -114,6 +120,7 @@ sleep-schedule/
 ├── deploy/                 # Nginx vhost、本地验收与发版脚本、只读诊断脚本
 └── docs/                   # 算法 / API / 配置 / 开发 / 部署 / 参考文献 / 截图
 ```
+
 ## 算法概览（引擎 `adaptive-v2`）
 
 - **先快后缓的步长曲线**：每天步长取「该段上限」与「剩余偏移 ÷ 剩余天数」的较小值，分段上限逐段递减（60 → 45 → 30 → 15 分钟），最后一天精确落到目标。
@@ -124,6 +131,7 @@ sleep-schedule/
 - **计划快照**：生成建议即落库，偏离判定与达标率都以快照为基准；未记录的日子不计入达标率、也不打断连续天数。
 
 完整的规则、常量表与文献依据见 [docs/ALGORITHM.md](docs/ALGORITHM.md)。
+
 ## API 概览
 
 | 方法 | 路径 | 说明 |
@@ -144,6 +152,7 @@ sleep-schedule/
 | `GET` | `/api/admin/logs` · `/api/admin/stats` | 系统日志检索与概览统计 |
 
 请求 / 响应示例、字段含义与完整错误码表见 [docs/API.md](docs/API.md)。
+
 ## 测试与自检
 
 ```bash
@@ -161,6 +170,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 
 改动前端或算法后建议跑最后一条，它会顺带跑三条回归护栏（无漏翻 i18n key、无未填充占位符、时间条不压
 刻度与图例）。命令逐条说明见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+
 ## 部署
 
 单机部署：Nginx 监听 80 直接读取 `/var/www/sleep-schedule` 下的静态文件，`/api/` 与 `/healthz` 反代到
