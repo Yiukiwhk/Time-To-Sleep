@@ -1,0 +1,447 @@
+/* ==========================================================================
+   管理后台样式（仅 PC，不要求移动端适配）
+   依赖 /shared/base.css 的设计变量与基础组件
+   ========================================================================== */
+
+/* 后台锁定桌面宽度：小屏横向滚动而不是压缩布局 */
+body {
+  overflow-x: auto;
+}
+
+/* 整体骨架：顶部栏 + 左侧导航 + 内容区 */
+.admin-shell {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  grid-template-rows: 56px 1fr;
+  grid-template-areas:
+    "brand topbar"
+    "sidebar main";
+  min-height: 100vh;
+  min-width: 1024px;
+}
+
+.admin-brand {
+  grid-area: brand;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.admin-topbar {
+  grid-area: topbar;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.admin-sidebar {
+  grid-area: sidebar;
+  border-right: 1px solid var(--border);
+  background: var(--bg-elevated);
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: sticky;
+  top: 56px;
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+}
+
+.admin-main {
+  grid-area: main;
+  padding: 22px 24px 48px;
+  min-width: 0;
+}
+
+/* 顶栏内的元素 */
+.admin-topbar .crumb {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.admin-topbar .spacer {
+  flex: 1;
+}
+
+.admin-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* 徽标 */
+.admin-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--mono);
+}
+
+/* 页面标题 */
+.admin-page-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.admin-page-head h1 {
+  font-size: 21px;
+  margin: 0 0 4px;
+}
+
+.admin-page-head p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.admin-page-head .spacer {
+  flex: 1;
+}
+
+/* 数据表格 */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.admin-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.admin-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.admin-table .num {
+  font-family: var(--mono);
+  text-align: right;
+}
+
+.admin-table .narrow {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.admin-table .select-col {
+  width: 34px;
+}
+
+.admin-table .actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.admin-table .actions .btn {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
+.admin-table-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 300px);
+}
+
+/* 工具栏 */
+.admin-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.admin-toolbar .field {
+  min-width: 150px;
+  margin: 0;
+}
+
+.admin-toolbar .spacer {
+  flex: 1;
+}
+
+.admin-toolbar .grow {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* 批量操作条 */
+.admin-bulkbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-hover);
+  font-size: 13px;
+}
+
+.admin-bulkbar .spacer {
+  flex: 1;
+}
+
+/* 统计卡片 */
+.admin-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.admin-stat {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.admin-stat:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.admin-stat .stat-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.admin-stat .stat-value {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.admin-stat.warn .stat-value {
+  color: var(--warn);
+}
+
+/* 面板 */
+.admin-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+/* 详情信息列表 */
+.admin-kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px 20px;
+  margin: 0;
+}
+
+.admin-kv > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.admin-kv dt {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.admin-kv dd {
+  margin: 0;
+  font-size: 13px;
+  text-align: right;
+}
+
+/* 日志级别配色 */
+.log-level {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.log-level.DEBUG {
+  color: var(--text-muted);
+}
+
+.log-level.INFO {
+  color: var(--ok);
+}
+
+.log-level.WARNING {
+  color: var(--warn);
+}
+
+.log-level.ERROR,
+.log-level.CRITICAL {
+  color: var(--danger);
+}
+
+.log-message {
+  max-width: 520px;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+/* 表单网格 */
+.admin-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+}
+
+.admin-form .full {
+  grid-column: 1 / -1;
+}
+
+.admin-form .field {
+  margin: 0;
+}
+
+.form-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.card-title .spacer {
+  flex: 1;
+}
+
+/* 登录页（后台独立实现 .auth-* ，不依赖用户端样式表） */
+.admin-auth {
+  min-width: 1024px;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+}
+
+.auth-card {
+  width: 420px;
+  max-width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 26px;
+  box-shadow: var(--shadow);
+}
+
+.auth-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  margin-bottom: 14px;
+}
+
+.auth-card h1 {
+  font-size: 20px;
+  margin: 0 0 6px;
+}
+
+.auth-sub {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0 0 18px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-foot {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.auth-switch {
+  margin: 10px 0 0;
+  font-size: 13px;
+  text-align: center;
+}
+
+.part-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+}
+
+.part-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 分页器复用 .pager，仅统一上边距 */
+.admin-pager {
+  margin-top: 12px;
+}

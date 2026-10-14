@@ -1,0 +1,578 @@
+# API 接口文档
+
+本文是后端 HTTP 接口的完整说明。所有接口挂在 `/api` 前缀下（应用内路由再加各自的
+`/auth`、`/records`、`/advice`、`/settings`、`/account`、`/admin` 前缀），请求与响应均为 JSON，
+编码 UTF-8。
+
+- 认证方式：**HttpOnly Cookie 会话**（用户端 `ssp_session`，管理后台 `ssp_admin_session`），
+  没有 Bearer Token。用 `curl` 调试时需要 `-c cookies.txt -b cookies.txt` 保留 Cookie。
+- 开启 `SSP_DEBUG=true` 时，`/api/docs`（Swagger UI）与 `/api/openapi.json` 可用；默认关闭。
+- 健康检查 `GET /healthz` 不在 `/api` 下，返回 `{"status":"ok","time":"..."}`，无需认证。
+
+## 通用约定
+
+### 响应与错误码格式
+
+错误响应体统一为：
+
+```json
+{
+  "detail": "error.write_too_fast",
+  "code": "error.write_too_fast",
+  "retry_after_seconds": 24,
+  "cooldown_seconds": 30
+}
+```
+
+- `detail` / `code` 是**可直接用于 i18n 的文案键**（前端 `t()` 渲染），不是给人看的中文句子。
+- `extra` 字段按需附加（如 429 的 `retry_after_seconds`、401 的 `required_parts`）。
+
+| 状态码 | 含义 | 典型 `code` |
+| --- | --- | --- |
+| 400 | 参数语义错误（格式对但取值不合理） | `error.nothing_to_update`、`error.target_requires_both`、`error.wrong_current_password`、`error.password_unchanged`、`error.invalid_date`、`error.date_in_future`、`error.date_too_old`、`error.invalid_time`、`error.nothing_selected`、`error.cannot_disable_self`、`error.cannot_delete_self`、`error.last_admin`、`error.admin_parts_not_allowed`、`error.admin_cannot_deactivate` |
+| 401 | 未登录或凭据错误 | `error.invalid_credentials`、`error.admin_password_parts`、`error.unauthorized` |
+| 403 | 已识别但不允许（账号停用、走错登录口） | `error.account_disabled`、`error.use_admin_login`、`error.forbidden` |
+| 404 | 资源不存在**或无权访问** | `error.record_not_found`、`error.user_not_found`、`error.deletion_not_found`、`error.not_found` |
+| 409 | 状态冲突（重名、重复提交） | `error.username_taken`、`error.deletion_pending`、`error.deletion_already_handled` |
+| 422 | 请求体不符合 schema（缺字段、超长、枚举非法） | `error.invalid_input`，并附 `field` / `message` / `errors[]` |
+| 429 | 触发写入冷却 | `error.write_too_fast`，响应带 `Retry-After` 头 |
+| 500 | 未预期异常 | `error.server` |
+
+两个刻意的设计：
+
+- **越权按 404 处理**：访问别人的记录、别人的用户详情一律返回 404 而不是 403，避免通过状态码
+  探测资源是否存在。
+- **422 会给出首个出错字段**，便于前端直接把错误提示挂到输入框上：
+
+  ```json
+  {
+    "detail": "error.invalid_input",
+    "code": "error.invalid_input",
+    "field": "new_password",
+    "message": "String should have at most 72 characters",
+    "errors": [{"field": "new_password", "message": "String should have at most 72 characters"}]
+  }
+  ```
+
+### 分页与写入冷却
+
+- 列表接口统一接受 `page`（默认 1）与 `page_size`（默认 20，最大 100），返回
+  `{items, total, page, page_size, pages}`。
+- 所有**写操作（POST / PUT / PATCH / DELETE）**受同一用户 30 秒冷却限制
+  （`SSP_WRITE_COOLDOWN_SECONDS`），命中返回 429 与 `error.write_too_fast`；剩余秒数也可从
+  `GET /api/records/meta` 的 `cooldown_remaining_seconds` 读到。
+
+## 认证 `/api/auth`
+
+### `POST /api/auth/login`
+
+用户端登录。管理员账号不能从用户端口登录（会返回 403 `error.use_admin_login`）。
+
+```json
+{
+  "username": "demo",
+  "password": "demo12345",
+  "remember": true
+}
+```
+
+```json
+{
+  "id": 2,
+  "username": "demo",
+  "is_admin": false,
+  "is_active": true,
+  "language": "zh",
+  "theme": "dark",
+  "target_sleep_time": "23:00",
+  "target_wake_time": "07:00",
+  "meal_breakfast": true,
+  "meal_lunch": true,
+  "meal_dinner": true,
+  "created_at": "2026-02-01T08:12:31",
+  "last_login_at": "2026-02-20T22:03:10"
+}
+```
+
+- `remember: true` → 会话 30 天；否则 12 小时（见 `SESSION_TTL_*`）。
+- 连续失败 5 次锁定 15 分钟（`error.account_locked` 语义由 `error.invalid_credentials` 之外的
+  403 分支返回），锁定与窗口由 `SSP_LOGIN_MAX_FAILURES` / `SSP_LOGIN_LOCK_SECONDS` 控制。
+
+### `POST /api/auth/admin/login`
+
+管理员**三段密码**登录：`passwords` 数组第 1 个元素是账号密码，其余按顺序对应第 2、3 段。
+段数由 `GET /api/auth/admin/parts` 告诉前端；段数不足返回 401 `error.admin_password_parts`
+（附 `required_parts`）。
+
+```json
+{
+  "username": "admin",
+  "passwords": ["Admin@12345", "Admin#67890", "Admin$24680"],
+  "remember": false
+}
+```
+
+```json
+{
+  "parts": 3
+}
+```
+
+（上面第二段是 `GET /api/auth/admin/parts` 的响应。）
+
+> 这三段默认值是**公开的示例口令**，仅供首次本地启动；上线后请立刻修改（第 1 段可在设置里改，
+> 第 2/3 段只能在首次建库前通过 `SSP_BOOTSTRAP_ADMIN_PASSWORDS` 设定）。
+
+### 会话相关
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/auth/me` | 读取当前登录用户（未登录 401） |
+| `GET` | `/api/auth/admin/me` | 读取当前管理员（非管理员 401 `error.unauthorized`） |
+| `GET` | `/api/auth/admin/parts` | 管理员登录需要几段密码：`{"parts": 3}` |
+| `POST` | `/api/auth/logout` | 退出用户端会话，清 Cookie |
+| `POST` | `/api/auth/admin/logout` | 退出管理后台会话 |
+
+```json
+{
+  "ok": true,
+  "message": "auth.logged_out",
+  "extra": null
+}
+```
+
+### `POST /api/auth/password`
+
+修改自己的密码；改完**所有会话失效**并清空 Cookie（需要重新登录）。
+
+```json
+{
+  "current_password": "demo12345",
+  "new_password": "demo54321"
+}
+```
+
+错误：`error.wrong_current_password`（400）、`error.password_unchanged`（400，新旧相同）、
+`error.user_not_found`（404，并发删除）。
+
+## 睡眠记录 `/api/records`
+
+字段约定：`sleep_time` / `wake_time` 为 `HH:MM`（24 小时制），`record_date` 为 `YYYY-MM-DD`
+（省略则取今天），三餐布尔字段默认 `true`，`note` 最长 200 字。允许补录最近 **3650 天**、
+允许最多 **1 天**未来日期（用于跨零点夜班场景），越界返回 `error.date_too_old` /
+`error.date_in_future`。
+
+### `POST /api/records`
+
+```json
+{
+  "sleep_time": "23:40",
+  "wake_time": "07:20",
+  "record_date": "2026-02-19",
+  "meal_breakfast": true,
+  "meal_lunch": true,
+  "meal_dinner": false,
+  "note": "睡前喝了咖啡"
+}
+```
+
+```json
+{
+  "id": 118,
+  "user_id": 2,
+  "sleep_time": "23:40",
+  "wake_time": "07:20",
+  "latest_wake_time": null,
+  "earliest_sleep_time": null,
+  "meal_breakfast": true,
+  "meal_lunch": true,
+  "meal_dinner": false,
+  "record_date": "2026-02-19",
+  "note": "睡前喝了咖啡",
+  "duration_minutes": 460,
+  "created_at": "2026-02-19T23:41:02",
+  "updated_at": "2026-02-19T23:41:02",
+  "username": null
+}
+```
+
+`duration_minutes` 由服务端按跨零点规则计算（服务端计算，客户端不用传）。
+成功返回 **201**；30 秒内重复写入返回 429 `error.write_too_fast`。
+
+### 记录查询与维护
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/records` | 自己的记录列表，支持 `start_date`、`end_date`、`page`、`page_size`；按日期倒序 |
+| `GET` | `/api/records/meta` | 录入页元信息：`total`、`latest_record_date`、`retention_months`、`retention_cutoff`、`write_cooldown_seconds`、`cooldown_remaining_seconds`、`today`、`max_future_days` |
+| `GET` | `/api/records/{record_id}` | 单条记录（非本人返回 404） |
+| `PUT` | `/api/records/{record_id}` | 部分更新，只传要改的字段；没有可改字段时 400 `error.nothing_to_update` |
+| `DELETE` | `/api/records/{record_id}` | 删除单条 |
+| `POST` | `/api/records/batch-delete` | 批量删除：`{"ids": [1, 2, 3]}`，最多 500 个 id |
+
+```json
+{
+  "items": [
+    {
+      "id": 118,
+      "user_id": 2,
+      "sleep_time": "23:40",
+      "wake_time": "07:20",
+      "meal_breakfast": true,
+      "meal_lunch": true,
+      "meal_dinner": false,
+      "record_date": "2026-02-19",
+      "note": null,
+      "duration_minutes": 460,
+      "created_at": "2026-02-19T23:41:02",
+      "updated_at": "2026-02-19T23:41:02"
+    }
+  ],
+  "total": 37,
+  "page": 1,
+  "page_size": 20,
+  "pages": 2,
+  "stats": null
+}
+```
+
+```json
+{
+  "ok": true,
+  "message": "records.deleted",
+  "extra": {"deleted": 3}
+}
+```
+
+批量删除时 `ids` 为空返回 400 `error.nothing_selected`；其中不属于当前用户的 id 会被忽略
+（按不存在处理，不会泄露是否存在）。
+
+## 建议 `/api/advice`
+
+算法规则与常量含义见 [ALGORITHM.md](ALGORITHM.md)。
+
+### `POST /api/advice`
+
+生成未来若干天的作息调整建议。
+
+```json
+{
+  "mode": "fast",
+  "days": 7,
+  "use_target": true,
+  "meal_breakfast": true,
+  "meal_lunch": true,
+  "meal_dinner": true,
+  "save": true
+}
+```
+
+- `mode`：`fast`（尽快调整，参考 1 天）或 `slow`（温和调整，默认 7 天）；只影响步子分配。
+- `days`：1–30；省略则按需推算。三个 `meal_*` 省略时沿用用户设置。
+- `use_target`：`true` 时优先使用自定义目标作息，否则用系统推荐目标（响应 `source` 会说明用了哪个）。
+- `save`：默认 `true`，把这次结果落库为“当前计划”快照，保证跨设备看到同一份计划。
+
+```json
+{
+  "mode": "fast",
+  "days": 7,
+  "source": "custom_target",
+  "basis": {"sample_days": 14, "avg_sleep_time": "00:20", "avg_wake_time": "08:10"},
+  "target": {"sleep_time": "23:00", "wake_time": "07:00"},
+  "steps": {"direction_caps": {"advance": 45, "delay": 90}, "hard_cap_minutes": 120, "min_step_minutes": 15},
+  "meal_plan": {"breakfast": {"best_time": "07:20"}, "lunch": {"best_time": "10:20"}, "dinner": {"best_time": "21:00"}},
+  "warnings": [],
+  "notices": [{"code": "advice.notice.short_plan", "days": 5}],
+  "notes": [],
+  "plan": [
+    {
+      "index": 1,
+      "date": "2026-02-20",
+      "sleep_time": "23:45",
+      "wake_time": "07:05",
+      "duration_minutes": 440,
+      "shift_sleep_minutes": -35,
+      "shift_wake_minutes": -35,
+      "step_minutes": 35,
+      "meals": {
+        "breakfast": {"enabled": true, "best_time": "07:25", "time": "07:25", "window_start": "07:20", "window_end": "07:35", "bar_minutes": 30, "anchor": "wake", "shifted_minutes": 0, "note": null},
+        "lunch": {"enabled": true, "best_time": "10:20", "time": "10:20", "window_start": "10:05", "window_end": "12:05", "bar_minutes": 60, "anchor": "wake", "shifted_minutes": 0, "note": null},
+        "dinner": {"enabled": true, "best_time": "21:00", "time": "21:00", "window_start": "19:30", "window_end": "21:00", "bar_minutes": 60, "anchor": "sleep", "shifted_minutes": 0, "note": null}
+      },
+      "timeline": {"axis_start": "23:45", "axis_end": "23:45", "span_minutes": 1440, "sleep_label": "23:45 → 07:05", "sleep_minutes": 440, "items": [{"kind": "sleep", "start": "23:45", "end": "07:05", "minutes": 440}]},
+      "tips": ["advice.tip.keep_regular"]
+    }
+  ],
+  "today": {"index": 0, "date": "2026-02-20", "sleep_time": "23:45", "wake_time": "07:05", "duration_minutes": 440, "shift_sleep_minutes": -35, "shift_wake_minutes": -35, "step_minutes": 35, "meals": {}, "timeline": {}, "tips": []},
+  "timeline": {"axis_start": "23:45", "axis_end": "23:45", "span_minutes": 1440, "items": []},
+  "plan_meta": {"start_date": "2026-02-20", "target_date": "2026-02-26", "postponed_days": 0, "replans": 0, "saved": true, "plan_id": 41},
+  "generated_at": "2026-02-20T07:30:00",
+  "engine": "adaptive-v2"
+}
+```
+
+`timeline.items` 的元素形如 `{"kind": "sleep"|"meal", "start": "HH:MM", "end": "HH:MM",
+"minutes": 460, "meal": "breakfast"}`，跨零点按轴起点取模处理（见 [ALGORITHM.md](ALGORITHM.md)）。
+
+### `GET /api/advice/plan`
+
+读取**当前计划快照**：今日目标、偏离程度、达标率、连续达标天数、未确认的通知等。返回体与
+`POST /api/advice` 同构，另带 `deviation`、`adherence`、`auto_recomputed`、`acked_notices`、
+`engine` 等状态字段。没有快照时 `plan_meta.saved` 为 `false`。
+
+### `POST /api/advice/checkin`
+
+三餐卡片的“已吃 / 跳过”一键确认，会写回当天记录（因此受 30 秒写入冷却限制）。
+
+```json
+{
+  "meal": "breakfast",
+  "eaten": false,
+  "date": "2026-02-20"
+}
+```
+
+```json
+{
+  "ok": true,
+  "date": "2026-02-20",
+  "meal": "breakfast",
+  "eaten": false,
+  "meal_plan": {"lunch": {"best_time": "09:20", "shifted_minutes": 60, "note": "advice.meal.lunch_advanced"}}
+}
+```
+
+连读多天未吃早餐会让午餐建议逐步前移（`shifted_minutes` 递增），规则见
+[ALGORITHM.md](ALGORITHM.md)。`date` 省略表示今天。
+
+### `POST /api/advice/notice-ack`
+
+“我已知晓，不再提示”，账号级记忆、跨设备生效。
+
+```json
+{
+  "notice": "advice.notice.short_plan"
+}
+```
+
+```json
+{
+  "ok": true,
+  "acked_notices": ["advice.notice.short_plan"]
+}
+```
+
+### `POST /api/advice/replan`
+
+偏离过大（> 90 分钟）时由用户选择处理策略。
+
+```json
+{
+  "strategy": "postpone"
+}
+```
+
+- `postpone`：整体顺延目标日期，保持每天步长不变。
+- `recompute`：保持目标日期，重新分配更小的步长。
+- `keep`：继续原计划（不写新快照）。
+
+响应是刷新后的计划状态（与 `GET /api/advice/plan` 同构），额外带 `strategy` 与 `saved` 字段。
+
+### `GET /api/advice/options`
+
+前端渲染选项用的元信息，不需要先生成完整建议。
+
+```json
+{
+  "modes": [
+    {"value": "fast", "label": "advice.mode.fast", "days": 1},
+    {"value": "slow", "label": "advice.mode.slow", "days": 7}
+  ],
+  "default_days": 7,
+  "max_days": 30,
+  "has_custom_target": true,
+  "target_sleep_time": "23:00",
+  "target_wake_time": "07:00",
+  "meal_flags": {"breakfast": true, "lunch": true, "dinner": true},
+  "steps": {
+    "direction_caps": {"advance": 45, "delay": 90},
+    "hard_cap_minutes": 120,
+    "min_step_minutes": 15
+  }
+}
+```
+
+## 设置与账号 `/api/settings`、`/api/account`
+
+| 方法 | 路径 | 请求体 | 说明 |
+| --- | --- | --- | --- |
+| `GET` | `/api/settings` | — | 读取当前账号配置（同 `UserPublic`） |
+| `PUT` | `/api/settings` | `{"language":"en","theme":"light","meal_dinner":false}` | 部分更新语言 / 主题 / 三餐开关；无字段时 400 |
+| `PUT` | `/api/settings/target` | `{"target_sleep_time":"23:00","target_wake_time":"07:00"}` | 设置自定义目标作息 |
+| `GET` | `/api/account/deletion` | — | 查询当前注销申请状态 |
+| `POST` | `/api/account/deletion` | `{"reason":"不再使用"}` | 提交注销申请（管理员在后台审批） |
+| `DELETE` | `/api/account/deletion` | — | 撤销自己的注销申请 |
+
+```json
+{
+  "language": "zh",
+  "theme": "dark",
+  "meal_breakfast": true,
+  "meal_lunch": true,
+  "meal_dinner": false,
+  "target_sleep_time": "23:00",
+  "target_wake_time": "07:00"
+}
+```
+
+`PUT /api/settings/target` 的 `target_sleep_time` / `target_wake_time` **必须同时给出或同时为
+`null`**（`null` 表示清空、回到系统推荐），只给一个返回 400 `error.target_requires_both`。
+
+```json
+{
+  "id": 7,
+  "user_id": 2,
+  "username": "demo",
+  "status": "pending",
+  "reason": "不再使用",
+  "requested_at": "2026-02-20T09:00:00",
+  "handled_at": null,
+  "handled_by": null,
+  "handled_by_username": null,
+  "handle_note": null
+}
+```
+
+重复提交返回 409 `error.deletion_pending`；管理员账号不能申请注销（400
+`error.admin_cannot_deactivate`）。
+
+## 管理后台 `/api/admin`
+
+**所有接口都要求管理员会话**（`current_admin`），并写审计日志。管理员对用户睡眠记录
+**只读 + 可删除**（不能修改），符合需求约束。
+
+### 用户管理
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/admin/users` | 用户列表，支持 `q`（用户名模糊）、`is_admin`、`is_active`、分页；每项带 `record_count`、`locked`、`last_login_at`、`last_login_ip` |
+| `GET` | `/api/admin/users/{user_id}` | 单个用户详情（不存在 404 `error.user_not_found`） |
+| `POST` | `/api/admin/users` | 新建用户；`is_admin: true` 时必须提供 `admin_passwords`（第 2/3 段） |
+| `PATCH` | `/api/admin/users/{user_id}` | 启停 / 改语言主题；停用自己 400 `error.cannot_disable_self`，停用最后一个管理员 400 `error.last_admin` |
+| `POST` | `/api/admin/users/{user_id}/password` | 重置某用户密码（`{"new_password":"..."}`） |
+| `POST` | `/api/admin/users/{user_id}/unlock` | 解除登录锁定 |
+| `DELETE` | `/api/admin/users/{user_id}` | 删除用户；删自己 400 `error.cannot_delete_self`；删最后一个管理员 400 `error.last_admin` |
+
+```json
+{
+  "username": "demo2",
+  "password": "demo23456",
+  "is_admin": false,
+  "language": "zh",
+  "theme": "dark",
+  "admin_passwords": []
+}
+```
+
+```json
+{
+  "items": [
+    {
+      "id": 2,
+      "username": "demo",
+      "is_admin": false,
+      "is_active": true,
+      "language": "zh",
+      "theme": "dark",
+      "target_sleep_time": "23:00",
+      "target_wake_time": "07:00",
+      "failed_login_count": 0,
+      "locked_until": null,
+      "locked": false,
+      "created_at": "2026-02-01T08:12:31",
+      "last_login_at": "2026-02-20T22:03:10",
+      "last_login_ip": "203.0.113.7",
+      "record_count": 37
+    }
+  ],
+  "total": 12,
+  "page": 1,
+  "page_size": 20,
+  "pages": 1
+}
+```
+
+### 用户记录（只读 + 删除）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/admin/users/{user_id}/records` | 只读列表，支持 `start_date`、`end_date`、分页 |
+| `DELETE` | `/api/admin/users/{user_id}/records/{record_id}` | 删除单条（不存在 404 `error.record_not_found`） |
+| `POST` | `/api/admin/users/{user_id}/records/batch-delete` | `{"ids":[1,2,3]}`，空列表 400 `error.nothing_selected` |
+
+### 注销申请
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/admin/deletion-requests` | 支持 `status`（`pending` / `approved` / `rejected`）、`username`、分页 |
+| `POST` | `/api/admin/deletion-requests/{request_id}` | 审批：`{"action":"approve","note":"已确认"}`；已处理过 409 `error.deletion_already_handled`；不能批准自己的申请 400 `error.cannot_delete_self` |
+
+```json
+{
+  "action": "approve",
+  "note": "用户已确认，批准注销"
+}
+```
+
+```json
+{
+  "ok": true,
+  "message": "admin.deletion_approved",
+  "extra": {"request_id": 7}
+}
+```
+
+### 日志、统计与维护
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/admin/logs` | 系统日志检索：`level`、`event`、`q`（消息模糊）、`user_id`、分页；返回带 `level_counts` |
+| `GET` | `/api/admin/stats` | 概览统计：用户数、记录数、今日活跃、待处理注销申请、日志量等 |
+| `POST` | `/api/admin/cleanup` | 手动触发一次清理（过期会话、超期记录、日志裁剪） |
+
+```json
+{
+  "items": [
+    {
+      "id": 9182,
+      "level": "INFO",
+      "event": "login_success",
+      "message": "user demo logged in",
+      "user_id": 2,
+      "username": "demo",
+      "ip": "203.0.113.7",
+      "path": "/api/auth/login",
+      "created_at": "2026-02-20T22:03:10"
+    }
+  ],
+  "total": 9182,
+  "page": 1,
+  "page_size": 20,
+  "pages": 460,
+  "level_counts": {"INFO": 8800, "WARNING": 350, "ERROR": 32}
+}
+```
+
+```json
+{
+  "ok": true,
+  "message": "admin.cleanup_done",
+  "extra": {"sleep_records": 12, "sessions": 3, "system_logs": 140, "login_attempts": 8}
+}
+```
+
+## 相关文档
+
+- 算法规则、常量与文献依据：[ALGORITHM.md](ALGORITHM.md)、[REFERENCES.md](REFERENCES.md)
+- 配置项与默认值：[CONFIGURATION.md](CONFIGURATION.md)
+- 本地起服务与自检：[DEVELOPMENT.md](DEVELOPMENT.md)

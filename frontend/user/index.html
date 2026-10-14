@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <!-- 资源地址一律用站点绝对路径（/shared、/user），与后端挂载点一致，
+         这样站点无论挂在域名根还是子路径下都能正确加载。 -->
+    <title>作息安排</title>
+    <link rel="icon" href="/user/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/shared/base.css" />
+    <link rel="stylesheet" href="/user/css/app.css" />
+  </head>
+  <body>
+    <!-- 登录页 -->
+    <section id="view-login" class="auth-page hidden">
+      <div class="auth-card">
+        <div class="auth-logo">🌙</div>
+        <h1 data-i18n="login.title">登录</h1>
+        <p class="auth-sub" data-i18n="login.subtitle"></p>
+
+        <form id="login-form" class="auth-form" autocomplete="on">
+          <div class="field">
+            <label for="login-username" data-i18n="login.username"></label>
+            <input id="login-username" class="input" name="username" autocomplete="username"
+                   maxlength="32" required />
+          </div>
+          <div class="field">
+            <label for="login-password" data-i18n="login.password"></label>
+            <input id="login-password" class="input" name="password" type="password"
+                   autocomplete="current-password" maxlength="72" required />
+          </div>
+          <label class="checkbox">
+            <input id="login-remember" type="checkbox" checked />
+            <span data-i18n="login.remember"></span>
+          </label>
+          <div id="login-error" class="inline-error"></div>
+          <button id="login-submit" class="btn btn-primary btn-block" type="submit" data-i18n="login.submit"></button>
+        </form>
+
+        <div class="row" style="justify-content: center; margin-top: 16px">
+          <div class="lang-switch" id="login-lang">
+            <button type="button" data-lang="zh">中文</button>
+            <button type="button" data-lang="en">English</button>
+          </div>
+          <button type="button" class="icon-btn" id="login-theme" title="theme">◐</button>
+        </div>
+
+        <p class="auth-foot" data-i18n="login.noSelfRegister"></p>
+      </div>
+    </section>
+
+    <!-- 主应用 -->
+    <section id="view-app" class="app-shell hidden">
+      <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
+
+      <aside id="sidebar" class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">🌙</div>
+          <div class="brand-text">
+            <strong data-i18n="app.name"></strong>
+            <span data-i18n="app.tagline"></span>
+          </div>
+        </div>
+
+        <nav class="nav" id="nav">
+          <button class="nav-item" data-route="records">
+            <span class="nav-icon">📋</span><span data-i18n="nav.records"></span>
+          </button>
+          <button class="nav-item" data-route="advice">
+            <span class="nav-icon">🧭</span><span data-i18n="nav.advice"></span>
+          </button>
+          <button class="nav-item" data-route="settings">
+            <span class="nav-icon">⚙️</span><span data-i18n="nav.settings"></span>
+          </button>
+        </nav>
+
+        <div class="sidebar-foot">
+          <div class="user-chip">
+            <div class="avatar" id="user-avatar">U</div>
+            <div class="meta">
+              <strong id="user-name">-</strong>
+              <span id="user-role">-</span>
+            </div>
+          </div>
+          <div class="prefs-row">
+            <div class="lang-switch" id="app-lang">
+              <button type="button" data-lang="zh">中文</button>
+              <button type="button" data-lang="en">EN</button>
+            </div>
+            <button type="button" class="icon-btn" id="app-theme" title="theme">◐</button>
+          </div>
+          <button class="btn btn-sm btn-block" id="logout-btn" data-i18n="nav.logout"></button>
+        </div>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <button type="button" class="icon-btn" id="menu-btn">☰</button>
+          <strong data-i18n="app.name"></strong>
+          <button type="button" class="icon-btn" id="top-theme">◐</button>
+        </header>
+        <main id="route-view" class="page"></main>
+        <!-- 内容区页脚：只放参考文献入口；路由重绘不会清掉它，侧栏的 .sidebar-foot 不受影响 -->
+        <footer class="page-foot">
+          <button type="button" class="btn btn-sm btn-ghost" id="references-open" data-i18n="references.open"></button>
+        </footer>
+      </div>
+    </section>
+
+    <script type="module" src="/user/js/main.js"></script>
+  </body>
+</html>

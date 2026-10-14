@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=1280" />
+    <meta name="color-scheme" content="dark light" />
+    <!-- 资源地址一律用站点绝对路径（/shared、/admin），与后端挂载点一致。 -->
+    <title>作息安排 · 管理后台</title>
+    <link rel="icon" href="/user/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/shared/base.css" />
+    <link rel="stylesheet" href="/admin/css/admin.css" />
+  </head>
+  <body>
+    <!-- 登录页：多重密码登录 -->
+    <section id="view-login" class="auth-page hidden">
+      <div class="auth-card">
+        <div class="auth-logo">🛡️</div>
+        <h1 data-i18n="adminLogin.title"></h1>
+        <p class="auth-sub" data-i18n="adminLogin.subtitle"></p>
+
+        <form id="login-form" class="auth-form" autocomplete="off">
+          <div class="field">
+            <label for="login-username" data-i18n="login.username"></label>
+            <input id="login-username" class="input" name="username" maxlength="32"
+                   autocomplete="username" required />
+          </div>
+
+          <div id="parts-box" class="stack" style="gap: 10px"></div>
+
+          <p class="part-note" id="parts-note"></p>
+
+          <label class="checkbox">
+            <input id="login-remember" type="checkbox" checked />
+            <span data-i18n="login.remember"></span>
+          </label>
+
+          <div id="login-error" class="inline-error"></div>
+
+          <button id="login-submit" class="btn btn-primary btn-block" type="submit"
+                  data-i18n="adminLogin.submit"></button>
+        </form>
+
+        <div class="row" style="justify-content: center; margin-top: 16px">
+          <div class="lang-switch" id="login-lang">
+            <button type="button" data-lang="zh">中文</button>
+            <button type="button" data-lang="en">English</button>
+          </div>
+          <button type="button" class="icon-btn" id="login-theme" title="theme">◐</button>
+        </div>
+
+        <p class="auth-foot">
+          <a href="/user/" data-i18n="adminLogin.toUser"></a>
+        </p>
+      </div>
+    </section>
+
+    <!-- 后台主界面（仅 PC） -->
+    <section id="view-admin" class="admin-shell hidden">
+      <div class="admin-brand">
+        <div class="brand-mark">🛡️</div>
+        <div class="brand-text">
+          <strong data-i18n="app.name"></strong>
+          <span data-i18n="admin.navTitle"></span>
+        </div>
+      </div>
+
+      <header class="admin-topbar">
+        <span class="crumb" id="crumb" data-i18n="nav.dashboard"></span>
+        <span class="spacer"></span>
+        <div class="lang-switch" id="app-lang">
+          <button type="button" data-lang="zh">中文</button>
+          <button type="button" data-lang="en">EN</button>
+        </div>
+        <button type="button" class="icon-btn" id="top-theme" title="theme">◐</button>
+        <span class="admin-who">
+          <span data-i18n="admin.signedInAs"></span>
+          <strong id="admin-name">-</strong>
+        </span>
+        <button type="button" class="btn btn-sm" id="logout-btn" data-i18n="nav.logout"></button>
+      </header>
+
+      <aside class="admin-sidebar">
+        <nav class="nav" id="nav">
+          <button class="nav-item" data-route="dashboard">
+            <span class="nav-icon">📊</span><span data-i18n="nav.dashboard"></span>
+          </button>
+          <button class="nav-item" data-route="users">
+            <span class="nav-icon">👥</span><span data-i18n="admin.navUsers"></span>
+          </button>
+          <button class="nav-item" data-route="requests">
+            <span class="nav-icon">🗂️</span><span data-i18n="admin.navRequests"></span>
+          </button>
+          <button class="nav-item" data-route="logs">
+            <span class="nav-icon">📜</span><span data-i18n="admin.navLogs"></span>
+          </button>
+        </nav>
+      </aside>
+
+      <main class="admin-main" id="route-view"></main>
+    </section>
+
+    <script type="module" src="/admin/js/app.js"></script>
+  </body>
+</html>

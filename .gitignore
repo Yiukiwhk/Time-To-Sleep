@@ -1,0 +1,37 @@
+# ---- 依赖与虚拟环境 ----
+.venv/
+venv/
+.wheels/
+__pycache__/
+*.py[cod]
+
+# ---- 运行时生成的数据与日志（仓库不含任何真实用户数据）----
+data/
+*.db
+*.db-wal
+*.db-shm
+logs/
+*.log
+
+# ---- 测试与本地验收的临时产物 ----
+.tmp/
+tests/_tmp/
+tests/_tmp*/
+.pytest_cache/
+ssp-advice-test-*/
+ssp-dbg-*/
+coverage.xml
+htmlcov/
+
+# ---- 本地部署凭据（只提交 .example 模板，绝不要提交真实值）----
+deploy/local.settings.ps1
+
+# ---- 发布产物 ----
+dist/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

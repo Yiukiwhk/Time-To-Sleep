@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: 自检 + 测试 + HTTP 端到端
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUNBUFFERED: "1"
+      SSP_DEBUG: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+
+      - name: 静态自检（编码 / 导入 / i18n / CSS 类）
+        run: |
+          python scripts/check_python_encoding.py
+          python scripts/scan_frontend_encoding.py
+          python scripts/absolute_shared_imports.py
+          python scripts/check_i18n_keys.py
+          python scripts/check_advice_i18n.py
+          python scripts/check_css_classes.py
+          python scripts/check_frontend_imports.py
+
+      - name: 前端语法检查（node --check）
+        run: find frontend -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: 部署脚本语法检查（bash -n）
+        run: find deploy -name '*.sh' -print0 | xargs -0 -n1 bash -n
+
+      - name: 算法引擎单元测试（pytest）
+        run: python -m pytest tests/test_advice_engine.py -q
+
+      - name: 后端冒烟测试（TestClient，独立临时库）
+        run: python tests/smoke_test.py
+
+      - name: 启动服务并跑 HTTP 端到端检查
+        env:
+          SSP_HOST: 127.0.0.1
+          SSP_PORT: "8011"
+          SSP_DATA_DIR: ${{ runner.temp }}/ssp-data
+          SSP_LOG_DIR: ${{ runner.temp }}/ssp-logs
+          SSP_DB_PATH: ${{ runner.temp }}/ssp-data/app.db
+          SSP_LOG_FILE: ${{ runner.temp }}/ssp-logs/app.log
+          SSP_FRONTEND_DIR: ${{ github.workspace }}/frontend
+        run: |
+          mkdir -p "$SSP_DATA_DIR" "$SSP_LOG_DIR"
+          python run.py --host 127.0.0.1 --port 8011 --no-browser > "${{ runner.temp }}/server.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8011/healthz > /dev/null; then
+              echo "server is up after ${i} tries"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8011/healthz
+          python tests/e2e_http.py http://127.0.0.1:8011
+          python scripts/smoke_http.py http://127.0.0.1:8011
+          python tests/check_module_graph.py http://127.0.0.1:8011
+
+      - name: 失败时打印服务日志
+        if: failure()
+        run: cat "${{ runner.temp }}/server.log" || true

@@ -1,0 +1,17 @@
+# 文本文件统一按 LF 存进仓库（Windows 检出时由 core.autocrlf 决定工作区换行）
+* text=auto
+
+# 二进制资源不要做换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.db binary
+
+# 需要固定换行的脚本：Windows 批处理用 CRLF，Shell 脚本用 LF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.sh text eol=lf
