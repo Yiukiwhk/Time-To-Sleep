@@ -1,4 +1,4 @@
-# Local end-to-end acceptance for the advice feature (single command):
+﻿# Local end-to-end acceptance for the advice feature (single command):
 #   1) start the backend on a scratch DB in .tmp/accept (write cooldown disabled)
 #   2) start the portable nginx (mirrors frontend/, listens on 8082, production vhost)
 #   3) static/copy self checks + module graph + smoke (all through nginx)

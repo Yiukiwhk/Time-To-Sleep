@@ -1,4 +1,4 @@
-# Assert that deploy/nginx-sleep-schedule.conf routes everything the frontends
+﻿# Assert that deploy/nginx-sleep-schedule.conf routes everything the frontends
 # need.  Uses deploy/serve_local.ps1 to run a portable nginx on 127.0.0.1:8082.
 #
 #   .\deploy\verify_nginx.ps1                 # routing only (API expects 502)
