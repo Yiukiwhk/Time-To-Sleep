@@ -280,7 +280,9 @@
   "basis": {"sample_days": 14, "avg_sleep_time": "00:20", "avg_wake_time": "08:10"},
   "target": {"sleep_time": "23:00", "wake_time": "07:00"},
   "steps": {"direction_caps": {"advance": 45, "delay": 90}, "hard_cap_minutes": 120, "min_step_minutes": 15},
-  "meal_plan": {"breakfast": {"best_time": "07:20"}, "lunch": {"best_time": "10:20"}, "dinner": {"best_time": "21:00"}},
+  "meal_plan": {"breakfast_skipped_streak": 0, "lunch_shift_minutes": 0, "refused_breakfast_today": false, "dinner_shift_minutes": 0,
+                "history": {"breakfast": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}, "lunch": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}, "dinner": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}},
+                "recent": [{"date": "2026-02-20", "meals": {"breakfast": {"state": "eaten", "source": "record"}, "lunch": {"state": "eaten", "source": "record"}, "dinner": {"state": "unknown", "source": null}}]},
   "warnings": [],
   "notices": [{"code": "advice.notice.short_plan", "days": 5}],
   "notes": [],
@@ -296,8 +298,8 @@
       "step_minutes": 35,
       "meals": {
         "breakfast": {"enabled": true, "best_time": "07:20", "time": "07:20", "window_start": "07:20", "window_end": "07:35", "bar_minutes": 30, "anchor": "wake", "shifted_minutes": 0, "note": null},
-        "lunch": {"enabled": true, "best_time": "13:48", "time": "13:48", "window_start": "13:48", "window_end": "15:48", "bar_minutes": 60, "anchor": "both", "shifted_minutes": 0, "note": null},
-        "dinner": {"enabled": true, "best_time": "20:15", "time": "20:15", "window_start": "20:15", "window_end": "21:45", "bar_minutes": 60, "anchor": "sleep", "shifted_minutes": 0, "note": null}
+        "lunch": {"enabled": true, "best_time": "12:18", "time": "12:18", "window_start": "12:18", "window_end": "14:18", "bar_minutes": 60, "anchor": "both", "shifted_minutes": 0, "note": null},
+        "dinner": {"enabled": true, "best_time": "19:15", "time": "19:15", "window_start": "19:15", "window_end": "20:45", "bar_minutes": 60, "anchor": "sleep", "shifted_minutes": 0, "note": null}
       },
       "timeline": {"axis_start": "05:05", "axis_end": "01:45", "span_minutes": 1240, "sleep_label": "23:45 → 07:05", "sleep_minutes": 440, "items": [{"kind": "sleep", "start": "23:45", "end": "07:05", "minutes": 440}]},
       "tips": ["advice.tip.keep_regular"]
@@ -334,7 +336,8 @@
 ```
 
 - `refused`：只有早餐用得上。`true` 表示“不想吃”，与“跳过”一样计入连续未吃早餐，
-  **并把当天的午餐与晚餐一起提前 60 分钟**（晚餐 −60，午餐因取中点再往前 30，共 −90）；
+  **并把当天的午餐与晚餐一起提前 60 分钟**（晚餐 −60，午餐按“取中点”跟着提前，正常作息下
+  不会早于现实窗口起点 11:00，所以实测浮动在 60–90 分钟之间）；
   给非早餐的餐次传 `true` 会被服务端忽略。点“已吃”即可撤销。
 - `date` 省略表示今天。
 
@@ -346,11 +349,14 @@
   "eaten": false,
   "refused": true,
   "meal_plan": {
-    "lunch": {"best_time": "09:20", "shifted_minutes": 60, "note": "advice.meal.lunch_advanced"},
+    "breakfast_skipped_streak": 1,
+    "lunch_shift_minutes": 60,
+    "refused_breakfast_today": true,
     "dinner_shift_minutes": 60,
-    "refused_breakfast_today": true
+    "history": {"breakfast": {"eaten": 4, "skipped": 1, "refused": 1, "unknown": 2}, "lunch": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}, "dinner": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}},
+    "recent": [{"date": "2026-02-20", "meals": {"breakfast": {"state": "refused", "source": "checkin"}, "lunch": {"state": "unknown", "source": null}, "dinner": {"state": "unknown", "source": null}}}]
   },
-  "today": {"date": "2026-02-20", "meals": {"lunch": {"best_time": "09:20"}, "dinner": {"best_time": "20:30"}}},
+  "today": {"date": "2026-02-20", "meals": {"lunch": {"best_time": "11:00", "window_end": "13:00"}, "dinner": {"best_time": "18:15", "window_end": "19:45"}}},
   "timeline": {"span_minutes": 1200, "items": []}
 }
 ```
@@ -359,7 +365,7 @@
 不必再拉一次整页。
 
 连续多天未吃早餐会让午餐建议逐步前移（`shifted_minutes` 递增，每次 60 / 90 / 120 分钟，
-下限是起床后 2 小时），规则见 [ALGORITHM.md](ALGORITHM.md)。
+下限是起床后 2 小时与现实窗口起点 11:00 中更晚的那个），规则见 [ALGORITHM.md](ALGORITHM.md)。
 
 ### `POST /api/advice/notice-ack`
 

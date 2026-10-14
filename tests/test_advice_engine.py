@@ -117,20 +117,25 @@ def test_advice_shape_and_windows(client: TestClient) -> None:
         assert meals["breakfast"]["best_time"] == advice_service.format_hhmm(
             (wake + 15) % advice_service.DAY
         )
-        # 午餐 = 早餐与晚餐的中点，再夹进 [起床+2h, 晚餐-4h]（跨零点的作息要先摊到
-        # 同一条不折返的轴上，否则"睡前 3.5 小时"会算到负数上）
-        span_sleep = sleep + advice_service.DAY if sleep <= wake else sleep
-        dinner_best = span_sleep - 210
-        lunch_mid = int(round((wake + 15 + dinner_best) / 2))
-        expect_lunch = max(
-            wake + 120, min(lunch_mid, dinner_best - advice_service.LUNCH_TO_DINNER_MIN)
-        )
-        assert parse_hhmm(meals["lunch"]["best_time"]) == expect_lunch % advice_service.DAY
+        # 本用例的作息（09:00 起 / 01:00 睡，目标 05:00 起 / 21:00 睡）全程都在"正常范围"里，
+        # 所以午/晚餐必定被就近靠拢进社会常规时段：午餐 11:00~15:00、晚餐 17:00~22:00。
+        lunch = parse_hhmm(meals["lunch"]["best_time"])
+        dinner = parse_hhmm(meals["dinner"]["best_time"])
+        assert advice_service.LUNCH_NORMAL_WINDOW[0] <= lunch <= advice_service.LUNCH_NORMAL_WINDOW[1], lunch
+        assert advice_service.DINNER_NORMAL_WINDOW[0] <= dinner <= advice_service.DINNER_NORMAL_WINDOW[1], dinner
         assert meals["lunch"]["anchor"] == "both"
-        dinner = (sleep - parse_hhmm(meals["dinner"]["best_time"])) % advice_service.DAY
-        assert dinner == 210
-        assert meals["dinner"]["window_start"] == advice_service.format_hhmm((sleep - 210) % advice_service.DAY)
-        assert meals["dinner"]["window_end"] == advice_service.format_hhmm((sleep - 120) % advice_service.DAY)
+        # 顺序与缓冲：早餐 → 午餐 → 晚餐 依次向后，晚餐留出睡前 2 小时以上
+        assert (lunch - wake - 15) % advice_service.DAY >= advice_service.LUNCH_AFTER_BREAKFAST_GAP
+        assert (dinner - lunch) % advice_service.DAY >= advice_service.MIN_MEAL_GAP, (lunch, dinner)
+        span_sleep = sleep + advice_service.DAY if sleep <= wake else sleep
+        assert span_sleep - dinner >= advice_service.DINNER_BEFORE_SLEEP[0]
+        # 窗口长度不变：午餐 120 分钟、晚餐 90 分钟
+        assert meals["lunch"]["window_end"] == advice_service.format_hhmm((lunch + 120) % advice_service.DAY)
+        assert meals["dinner"]["window_start"] == advice_service.format_hhmm(dinner % advice_service.DAY)
+        assert meals["dinner"]["window_end"] == advice_service.format_hhmm(
+            (dinner + advice_service.DINNER_BEFORE_SLEEP[1] - advice_service.DINNER_BEFORE_SLEEP[0])
+            % advice_service.DAY
+        )
         assert meals["breakfast"]["bar_minutes"] < meals["lunch"]["bar_minutes"]
         assert meals["breakfast"]["time"] == meals["breakfast"]["best_time"]
         assert day["timeline"]["items"], "时间图不能为空"
@@ -237,10 +242,16 @@ def test_lunch_shifts_earlier_when_breakfast_skipped(client: TestClient) -> None
     day = shifted["plan"][0]
     wake = parse_hhmm(day["wake_time"])
     shifted_lunch = parse_hhmm(day["meals"]["lunch"]["best_time"])
-    # 前移量精确等于阶梯值：午餐整体往前挪 120 分钟，且不会被"起床后 2 小时"的下限
-    # 吃掉（旧口径午餐锚在起床+3h，前移 120 分钟后正好卡在下限上，掩盖了真实位移）
+    # 阶梯前移在"现实窗口"里能走多少走多少：午餐被夹进 11:00~15:00，
+    # 所以前移量最多到窗口下限（11:00）为止，不会跑到 11:00 之前去。
     base_lunch = parse_hhmm(base["plan"][0]["meals"]["lunch"]["best_time"])
-    assert (base_lunch - shifted_lunch) % advice_service.DAY == 120
+    expected_lunch = max(
+        advice_service.LUNCH_NORMAL_WINDOW[0],
+        (base_lunch - 120) % advice_service.DAY,
+    )
+    assert shifted_lunch < base_lunch
+    assert shifted_lunch == expected_lunch, (base_lunch, shifted_lunch)
+    assert advice_service.LUNCH_NORMAL_WINDOW[0] <= shifted_lunch <= advice_service.LUNCH_NORMAL_WINDOW[1]
     assert (shifted_lunch - wake) % advice_service.DAY >= advice_service.LUNCH_FLOOR_AFTER_WAKE
     assert day["meals"]["lunch"]["shifted_minutes"] == 120
     assert any(
@@ -281,6 +292,40 @@ def test_lunch_midpoint_keeps_gaps_reasonable_on_long_days(client: TestClient) -
     assert (lunch - breakfast) % advice_service.DAY >= 4 * 60      # 早餐到午餐也别挤在一起
     assert (dinner - breakfast) % advice_service.DAY >= 8 * 60     # 早餐到晚餐至少 8 小时
     assert meals["lunch"]["anchor"] == "both"
+
+
+def test_meals_snap_to_reality_windows_for_normal_schedules(client: TestClient) -> None:
+    """作息正常就按社会时钟吃饭，作息越界就回落到相对锚点算法。
+
+    正常：起床 ≤ 15:00 → 午餐落在 11:00~15:00；入睡不晚于次日 06:00 → 晚餐落在 17:00~22:00。
+    越界：18:00 起床 + 上午 09:00 入睡（白天补觉）→ 两侧窗口都不套用，晚餐回到"睡前 4.5 小时"。
+    """
+    # ① 正常作息：08:30 起、00:30 睡
+    _make_user("normalday", rows=_records_pattern("00:30", "08:30"), target=("00:30", "08:30"))
+    _login(client, "normalday")
+    day = client.post("/api/advice", json={"mode": "slow", "days": 1}).json()["plan"][0]
+    meals = day["meals"]
+    lunch = parse_hhmm(meals["lunch"]["best_time"])
+    dinner = parse_hhmm(meals["dinner"]["best_time"])
+    assert advice_service.LUNCH_NORMAL_WINDOW[0] <= lunch <= advice_service.LUNCH_NORMAL_WINDOW[1], lunch
+    assert advice_service.DINNER_NORMAL_WINDOW[0] <= dinner <= advice_service.DINNER_NORMAL_WINDOW[1], dinner
+
+    # ② 越界作息：18:00 起、09:00 睡 —— 起床晚于 15:00，入睡落在 06:00~17:00 的白天区间
+    _make_user("nightowl", rows=_records_pattern("09:00", "18:00"), target=("09:00", "18:00"))
+    _login(client, "nightowl")
+    day = client.post("/api/advice", json={"mode": "slow", "days": 1}).json()["plan"][0]
+    wake = parse_hhmm(day["wake_time"])
+    sleep = parse_hhmm(day["sleep_time"])
+    meals = day["meals"]
+    lunch = parse_hhmm(meals["lunch"]["best_time"])
+    dinner = parse_hhmm(meals["dinner"]["best_time"])
+    span = sleep + advice_service.DAY if sleep <= wake else sleep
+    assert wake > advice_service.NORMAL_WAKE_UNTIL
+    # 晚餐回到相对锚点：睡前 4.5 小时（3.5 小时 + 整体提前 1 小时）
+    assert dinner == (span - advice_service.DINNER_BEFORE_SLEEP[1] - advice_service.MEAL_ADVANCE_MIN) % advice_service.DAY
+    # 午餐也不再被硬塞进社会时钟，而是停在相对锚点算出的位置
+    assert not (advice_service.LUNCH_NORMAL_WINDOW[0] <= lunch <= advice_service.LUNCH_NORMAL_WINDOW[1]), lunch
+    assert (dinner - lunch) % advice_service.DAY >= advice_service.MIN_MEAL_GAP
 
 
 def test_checkin_eaten_true_writes_back(client: TestClient) -> None:

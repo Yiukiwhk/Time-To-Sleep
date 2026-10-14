@@ -178,6 +178,35 @@ if (-not $SkipBrowser) {
             } elseif ($adviceModes -contains $mode) {
                 Check "[$mode] mini timeline probe returned geometry" $false "tl_mini missing from the render summary"
             }
+            # 现实作息窗口（用户需求）：探针作息（00:30 睡 / 08:30 起，目标 23:00/07:00）全程正常，
+            # 所以计划里每一行的午餐都要落在 11:00–15:00、晚餐落在 17:00–22:00。
+            # 作息越界的用例不在这里断言（那时算法会回落到相对锚点，出窗才是对的）。
+            if (($adviceModes -contains $mode) -and $json.meals_api) {
+                $rows = @($json.meals_api)
+                $outOfWindow = @()
+                $toMinutes = {
+                    param($clock)
+                    $parts = "$clock".Split(":")
+                    if ($parts.Count -lt 2) { return -1 }
+                    return ([int]$parts[0] * 60 + [int]$parts[1])
+                }
+                foreach ($row in $rows) {
+                    $lunch = & $toMinutes $row.lunch
+                    $dinner = & $toMinutes $row.dinner
+                    $wake = & $toMinutes $row.wake
+                    $sleep = & $toMinutes $row.sleep
+                    $normal = ($wake -le 900) -and (($sleep -le 360) -or ($sleep -ge 1020))
+                    if (-not $normal) { continue }
+                    if (($lunch -lt 660) -or ($lunch -gt 900) -or ($dinner -lt 1020) -or ($dinner -gt 1320)) {
+                        $outOfWindow += ("wake=" + $row.wake + " sleep=" + $row.sleep + " lunch=" + $row.lunch + " dinner=" + $row.dinner)
+                    }
+                }
+                Check "[$mode] lunch snaps into 11:00-15:00 and dinner into 17:00-22:00" ($outOfWindow.Count -eq 0) ("rows=" + $rows.Count + " out=" + ($outOfWindow -join "; "))
+                if ($mode -eq "base") {
+                    # 今日卡片必须显示接口给的同一天饭点（接口是第一行，卡片就是第一行）
+                    Check "today card meal times match the API" (($json.today_meals_dom.lunch -eq $rows[0].lunch) -and ($json.today_meals_dom.dinner -eq $rows[0].dinner)) ("dom=" + $json.today_meals_dom.lunch + "/" + $json.today_meals_dom.dinner + " api=" + $rows[0].lunch + "/" + $rows[0].dinner)
+                }
+            }
             if ($mode -eq "base") {
                 Check "timeline bars drawn" ($json.timeline_bars -ge 4) ("bars=" + $json.timeline_bars)
                 Check "now marker drawn" ($json.timeline_now -ge 1) ("now=" + $json.timeline_now)
@@ -212,8 +241,31 @@ if (-not $SkipBrowser) {
                 else {
                     Check "breakfast card offers the refused button" ([int]$rf.has_button -eq 1) "no [data-refused] button"
                     Check "refusing breakfast posted a check-in" (@($rf.checkin_calls | Where-Object { $_.method -eq "POST" -and $_.status -eq 200 }).Count -ge 1) ("calls=" + (@($rf.checkin_calls) | ConvertTo-Json -Compress))
-                    Check "today dinner moved earlier after refusing" ($rf.after.dinner -ne $rf.before.dinner -and $rf.after.dinner -ne "") ("before=" + $rf.before.dinner + " after=" + $rf.after.dinner)
-                    Check "today lunch moved earlier after refusing" ($rf.after.lunch -ne $rf.before.lunch -and $rf.after.lunch -ne "") ("before=" + $rf.before.lunch + " after=" + $rf.after.lunch)
+                    # 三餐时间是 "HH:MM"，必须换算成分钟再比（字符串比较连格式差异都判不出来）。
+                    # 午餐可能本来就停在现实窗口下限 11:00，此时"不想吃早餐"再没有可提前的空间，
+                    # 算法只保证不把它推后，所以断言写成"不推后 + 有余量时才真的提前"。
+                    $toMin = {
+                        param($t)
+                        if (-not $t) { return -1 }
+                        $parts = "$t".Split(":")
+                        return ([int]$parts[0]) * 60 + [int]$parts[1]
+                    }
+                    $bLunch = & $toMin $rf.before.lunch
+                    $aLunch = & $toMin $rf.after.lunch
+                    $bDinner = & $toMin $rf.before.dinner
+                    $aDinner = & $toMin $rf.after.dinner
+                    $windowFloor = 11 * 60
+                    $shifts = @($rf.checkin_bodies | ForEach-Object { $_.lunch_shift_minutes })
+                    $dinnerShifts = @($rf.checkin_bodies | ForEach-Object { $_.dinner_shift_minutes })
+                    Check "today dinner moved 60 minutes earlier after refusing" ($bDinner -ge 0 -and $aDinner -eq ($bDinner - 60)) ("before=" + $rf.before.dinner + " after=" + $rf.after.dinner)
+                    Check "today lunch did not move later after refusing" ($bLunch -ge 0 -and $aLunch -le $bLunch) ("before=" + $rf.before.lunch + " after=" + $rf.after.lunch)
+                    Check "today lunch moved earlier when the window leaves room" ($bLunch -le $windowFloor -or $aLunch -lt $bLunch) ("before=" + $rf.before.lunch + " after=" + $rf.after.lunch)
+                    # 午餐的位移是"阶梯 ⊕ 拒绝"的较大值（接口返回的就是最终生效的那个）：
+                    # 探针账号本身带着连续跳过早餐的阶梯，所以这里只能断言 ≥60；
+                    # 精确等于 60 的是晚餐那条（晚餐没有阶梯，拒绝就是 −60）。
+                    Check "refusal reports a lunch shift of at least 60 minutes" (@($shifts | Where-Object { [int]$_ -ge 60 }).Count -ge 1) ("shifts=" + ($shifts -join ","))
+                    Check "refusal reports a 60-minute dinner shift" ($dinnerShifts -contains 60) ("shifts=" + ($dinnerShifts -join ","))
+                    Check "refusal is recorded for today only" (@($rf.checkin_bodies | Where-Object { $_.refused_breakfast_today -eq $true }).Count -ge 1) ("bodies=" + ($rf.checkin_bodies | ConvertTo-Json -Compress))
                     Check "daily plan first row follows the today card" ($rf.after.row -match [regex]::Escape($rf.after.dinner)) ("row=" + $rf.after.row + " dinner=" + $rf.after.dinner)
                     Check "dinner shift hint shown" ($rf.dinner_hint -ne "") ("hint=" + $rf.dinner_hint)
                     Check "refused button shows the active state" ([int]$rf.active_refused -ge 1) ("active_refused=" + $rf.active_refused)

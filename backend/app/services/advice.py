@@ -37,13 +37,23 @@ ENGINE = "adaptive-v2"
 # --------------------------------------------------------------------------- #
 BREAKFAST_AFTER_WAKE = (15, 30)          # 起床后 15~30 分钟，最佳取窗口起点
 LUNCH_AFTER_WAKE = (3 * 60, 5 * 60)      # 午餐窗口长度 2 小时（窗口起点不再锚在起床，见 _meal_times）
-DINNER_BEFORE_SLEEP = (2 * 60, 210)      # 睡前 2~3.5 小时，最佳 3.5 小时
+DINNER_BEFORE_SLEEP = (2 * 60, 210)      # 睡前 2~3.5 小时，最佳 3.5 小时（实际起点再叠加 MEAL_ADVANCE_MIN）
 LUNCH_TO_DINNER_MIN = 4 * 60             # 午餐至少早于晚餐 4 小时，别把两餐挤在一起
 MEAL_BAR_MINUTES = {"breakfast": 30, "lunch": 60, "dinner": 60}   # 时间图条长（仅视觉）
 LUNCH_ADVANCE_LADDER = (60, 90, 120)     # 连续未吃早餐第 1/2/3+ 天的午餐前移量
 LUNCH_FLOOR_AFTER_WAKE = 120             # 午餐不早于起床后 2 小时
 REFUSED_BREAKFAST_SHIFT = 60             # 早餐"不想吃"：今天的午餐与晚餐各提前的固定分钟数
 MEAL_KEYS = ("breakfast", "lunch", "dinner")
+
+# 现实作息锚点：作息落在"正常范围"内时，午/晚餐就近靠拢到社会常规时段，
+# 而不是继续跟着（可能很极端的）起床/入睡时刻线性漂移。
+NORMAL_WAKE_UNTIL = 15 * 60              # 起床不晚于 15:00 才算正常作息
+NORMAL_SLEEP_UNTIL = 6 * 60              # 入睡不晚于次日 06:00 才算正常作息
+LUNCH_NORMAL_WINDOW = (11 * 60, 15 * 60)     # 常规午餐时段 11:00~15:00
+DINNER_NORMAL_WINDOW = (17 * 60, 22 * 60)    # 常规晚餐时段 17:00~22:00
+MEAL_ADVANCE_MIN = 60                    # 现有算法整体提前 1 小时（午餐与晚餐一起前移）
+LUNCH_AFTER_BREAKFAST_GAP = 30           # 保序：午餐至少晚于早餐结束 30 分钟
+MIN_MEAL_GAP = 120                       # 保序：午餐与晚餐之间至少留 2 小时
 
 # --------------------------------------------------------------------------- #
 # 相位步长
@@ -445,13 +455,24 @@ def _meal_times(
     lunch_shift: int = 0,
     refused_breakfast: bool = False,
 ) -> dict[str, dict]:
-    """三餐推荐时间：早餐锚起床、晚餐锚入睡，午餐取两者的中点。
+    """三餐推荐时间：早餐锚起床、晚餐锚入睡，午餐取两者的中点，再按现实作息校准。
 
     早先午餐锚在"起床 + 3 小时"，白天越长（例如 06:00 起、01:00 睡）午餐与晚餐
     之间就拉得越开 —— 实测能到 12.5 小时，对晚睡早起的人明显不合理。改成取
     早餐与晚餐的中点后，同一作息的间隔收敛到 7.6 小时；短白天的人（07:00 起、
     23:00 睡）则从 9.5 小时收敛到 6.1 小时。中点再夹进 [起床+2h, 晚餐-4h]，
     最后叠加"连续未吃早餐"的前移量（前移可以突破下限，但不早于起床+2h）。
+
+    求出的三餐还要过三道校正，顺序不能调换：
+
+    ① **整体提前**：现有算法算出的午餐与晚餐一起前移 MEAL_ADVANCE_MIN（1 小时），
+       让饭点整体靠前，更贴近"吃完还有活动时间"的常识。
+    ② **现实窗口**：起床不晚于 15:00 时，午餐就近靠拢到 11:00~15:00；入睡不晚于
+       次日 06:00 时，晚餐就近靠拢到 17:00~22:00。"就近靠拢"= 落在窗口外才夹回最近的
+       边界，窗口内的取值原样保留。作息一旦越界（15:00 后起床、或白天补觉），
+       这一步整体跳过，直接沿用①的结果 —— 极端作息本来就不该硬套社会时钟。
+    ③ **保序**：早餐 < 午餐 < 晚餐，且晚餐留在睡前 2 小时之外。窗口与极端作息打架时
+       顺序优先（14:50 起床却要求 11:00 吃午饭是不可能的）。
 
     `refused_breakfast` 是"今天的早餐不想吃"这一次的明确拒绝：比单纯跳过更进一步，
     今天的午餐至少提前 REFUSED_BREAKFAST_SHIFT，晚餐也一起提前同样的分钟数
@@ -463,25 +484,45 @@ def _meal_times(
         # 摊到一条不折返的轴上（入睡在零点后则 +24 小时）：否则"睡前 3.5 小时"
         # 与取中点都会算到负数上去，跨零点的作息（01:00 睡、06:00 起）直接错位。
         sleep += DAY
+    sleep_clock = sleep % DAY
 
     breakfast_best = wake + BREAKFAST_AFTER_WAKE[0]
     breakfast_end = wake + BREAKFAST_AFTER_WAKE[1]
 
     # 不想吃早餐 → 晚餐同样提前固定分钟数，窗口跟着一起挪（窗口长度保持 90 分钟）
     dinner_shift = REFUSED_BREAKFAST_SHIFT if refused_breakfast else 0
-    dinner_best = sleep - DINNER_BEFORE_SLEEP[1] - dinner_shift
-    dinner_end = dinner_best + (DINNER_BEFORE_SLEEP[1] - DINNER_BEFORE_SLEEP[0])
+    # ① 现有算法 + 整体提前 1 小时
+    dinner_best = sleep - DINNER_BEFORE_SLEEP[1] - MEAL_ADVANCE_MIN - dinner_shift
 
     lunch_shift = max(0, min(int(lunch_shift), LUNCH_ADVANCE_LADDER[-1]))
     if refused_breakfast:
         # 取两者的较大值而不是相加：连续没吃早餐的梯度本身已经能到 120 分钟，
         # 相加会把午餐推到离谱的位置（下限托底后反而看不出效果）
         lunch_shift = max(lunch_shift, REFUSED_BREAKFAST_SHIFT)
-    lunch_mid = int(round((breakfast_best + dinner_best) / 2))
+    lunch_mid = int(round((breakfast_best + dinner_best) / 2)) - MEAL_ADVANCE_MIN
     lunch_best = max(
         wake + LUNCH_FLOOR_AFTER_WAKE,
         min(lunch_mid, dinner_best - LUNCH_TO_DINNER_MIN) - lunch_shift,
     )
+
+    # ② 现实窗口：作息正常就"就近靠拢"到常规用餐时段，越界则整步跳过。
+    #    晚餐的"正常入睡"= 次日 06:00 之前，或当天傍晚之后（都算夜里睡）；
+    #    06:00~17:00 之间入睡属于白天补觉，不套用社会时钟。
+    if wake <= NORMAL_WAKE_UNTIL:
+        lunch_best = max(LUNCH_NORMAL_WINDOW[0], min(lunch_best, LUNCH_NORMAL_WINDOW[1]))
+    if sleep_clock <= NORMAL_SLEEP_UNTIL or sleep_clock >= DINNER_NORMAL_WINDOW[0]:
+        dinner_best = max(DINNER_NORMAL_WINDOW[0], min(dinner_best, DINNER_NORMAL_WINDOW[1]))
+
+    # ③ 保序：窗口可能把两餐推到睡眠之后或互相倒挂，这里统一收尾。
+    dinner_best = min(dinner_best, sleep - DINNER_BEFORE_SLEEP[0])
+    lunch_best = min(lunch_best, dinner_best - MIN_MEAL_GAP)
+    lunch_best = max(lunch_best, breakfast_end + LUNCH_AFTER_BREAKFAST_GAP)
+    if lunch_best + MIN_MEAL_GAP > dinner_best:
+        # 起床到入睡不足 6 小时的极端作息下已无处安放三餐：顺序优先，
+        # 让晚餐跟着午餐走，牺牲"睡前 2 小时"这条缓冲。
+        dinner_best = lunch_best + MIN_MEAL_GAP
+
+    dinner_end = dinner_best + (DINNER_BEFORE_SLEEP[1] - DINNER_BEFORE_SLEEP[0])
     lunch_end = lunch_best + (LUNCH_AFTER_WAKE[1] - LUNCH_AFTER_WAKE[0])
 
     plan = {
