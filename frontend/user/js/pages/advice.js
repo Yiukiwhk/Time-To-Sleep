@@ -124,7 +124,7 @@ function mealHintHtml(mealPlan) {
   )}</p>`;
 }
 
-function todayMealHtml(key, meal, mealPlan, canCheckin) {
+function todayMealHtml(key, meal, mealPlan, canCheckin, preview) {
   const state = mealStateOf(mealPlan, key);
   const best = meal.best_time || meal.time || "--:--";
   const window = `${meal.window_start || "--:--"}–${meal.window_end || "--:--"}`;
@@ -141,6 +141,16 @@ function todayMealHtml(key, meal, mealPlan, canCheckin) {
       ? `<button class="btn btn-sm checkin-btn${state === "refused" ? " active-refused" : ""}" data-meal="${key}" data-eaten="0" data-refused="1">${escapeHtml(
           t("advice.meal.checkin.refused")
         )}</button>`
+      : "";
+  // 点之前就告诉用户"点了午餐晚餐会变成几点"：值来自后端算好的预测，和点下去的结果同源
+  const previewLine =
+    key === "breakfast" && state !== "refused" && preview?.lunch?.best_time
+      ? `<p class="tiny meal-preview" data-refusal-preview>${escapeHtml(
+          tp("advice.meal.refusal_preview", {
+            lunch: preview.lunch.best_time,
+            dinner: preview.dinner?.best_time || "--:--",
+          })
+        )}</p>`
       : "";
   const checkin = canCheckin
     ? `<div class="checkin-row">
@@ -165,16 +175,17 @@ function todayMealHtml(key, meal, mealPlan, canCheckin) {
       <span class="m-name">${escapeHtml(mealName(key))}</span>
     </div>
     <div class="tm-best">
-      <strong class="mono">${escapeHtml(best)}</strong>
+      <strong class="mono" data-best>${escapeHtml(best)}</strong>
       <span class="tm-best-label">${escapeHtml(t("advice.meal.best"))}</span>
     </div>
     <div class="tm-window">
       <span>${escapeHtml(t("advice.meal.window"))}</span>
-      <strong class="mono">${escapeHtml(window)}</strong>
+      <strong class="mono" data-window>${escapeHtml(window)}</strong>
     </div>
     ${note}
     ${dinnerHint}
     ${checkin}
+    ${previewLine}
   </div>`;
 }
 
@@ -223,7 +234,7 @@ function todayCardHtml(data) {
             <div class="row-wrap"><span class="label">${escapeHtml(t("advice.today.meals"))}</span>
               ${mealHintHtml(data.meal_plan)}</div>
             <div class="today-meal-grid" data-meals>${meals
-              .map((key) => todayMealHtml(key, day.meals[key], data.meal_plan, canCheckin))
+              .map((key) => todayMealHtml(key, day.meals[key], data.meal_plan, canCheckin, day.refusal_preview))
               .join("")}</div>
           </div>`
         : ""
@@ -350,7 +361,7 @@ function mealsHtml(day) {
 }
 
 function dayRowHtml(day) {
-  return `<article class="day-card">
+  return `<article class="day-card" data-day-card data-date="${escapeHtml(day.date)}">
     <div class="dc-head">
       <span class="badge badge-accent">${escapeHtml(t("advice.day", { n: day.index }))}</span>
       <span class="mono muted">${escapeHtml(day.date)}</span>
@@ -522,6 +533,16 @@ function mountTimelines(root, data) {
   });
 }
 
+/** 三餐按钮走事件委托：局部重画后重新调用一次即可，不必给每个按钮挂监听 */
+function bindMealCheckin(root, scope = root) {
+  const mealsBox = qs("[data-meals]", scope);
+  if (!mealsBox) return;
+  mealsBox.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-meal][data-eaten]");
+    if (btn) checkin(root, btn);
+  });
+}
+
 function bindPlanActions(root) {
   const exportBtn = qs("#advice-export", root);
   if (exportBtn) exportBtn.addEventListener("click", () => exportPlan(view.state.plan));
@@ -547,13 +568,7 @@ function bindPlanActions(root) {
     btn.addEventListener("click", () => ackNotice(root, btn));
   });
 
-  const mealsBox = qs("[data-meals]", root);
-  if (mealsBox) {
-    mealsBox.addEventListener("click", (event) => {
-      const btn = event.target.closest("[data-meal][data-eaten]");
-      if (btn) checkin(root, btn);
-    });
-  }
+  bindMealCheckin(root);
 }
 
 /* ------------------------------ 表单 ------------------------------ */
@@ -802,6 +817,102 @@ function mergeCheckinState(body) {
   if (index >= 0) days[index] = { ...days[index], ...body.today };
 }
 
+/* ---------------------- 即时反馈（不改布局、不丢滚动位置） ---------------------- */
+
+const SHIFTED_MEALS = ["lunch", "dinner"];
+
+function mealCardOf(root, key) {
+  return qs(`.today-meal[data-meal="${key}"]`, root);
+}
+
+/** 记下点击前午餐/晚餐显示的时间，用来做"旧 → 新" */
+function mealTimeSnapshot(root) {
+  const out = {};
+  SHIFTED_MEALS.forEach((key) => {
+    const card = mealCardOf(root, key);
+    if (!card) return;
+    out[key] = card.querySelector("[data-best]")?.textContent.trim() || "";
+  });
+  return out;
+}
+
+/** 点击瞬间先把数字换成后端算好的预测值（网络往返期间用户已经看到结果） */
+function applyPreviewTimes(root, preview) {
+  if (!preview) return;
+  SHIFTED_MEALS.forEach((key) => {
+    const card = mealCardOf(root, key);
+    const target = preview[key];
+    if (!card || !target?.best_time) return;
+    const best = card.querySelector("[data-best]");
+    if (best) best.textContent = target.best_time;
+    const win = card.querySelector("[data-window]");
+    if (win) {
+      win.textContent = `${target.window_start || "--:--"}–${target.window_end || "--:--"}`;
+    }
+    card.classList.add("tm-flash");
+  });
+}
+
+/** 时间真的变了才高亮 2.6 秒，并补一行"旧 → 新"，让变化一眼可见 */
+function flashMovedTimes(root, before) {
+  SHIFTED_MEALS.forEach((key) => {
+    const card = mealCardOf(root, key);
+    const now = card?.querySelector("[data-best]")?.textContent.trim() || "";
+    const was = before?.[key] || "";
+    if (!card || !now || !was || now === was) return;
+    card.classList.add("tm-flash");
+    const line = document.createElement("p");
+    line.className = "tiny meal-moved";
+    line.textContent = tp("advice.meal.moved", { from: was, to: now });
+    card.appendChild(line);
+    window.setTimeout(() => {
+      card.classList.remove("tm-flash");
+      line.remove();
+    }, 2600);
+  });
+}
+
+/** 重画后把用户刚点的那张卡片拉回视野（block:"nearest" 不跳动、不强制滚动） */
+function anchorMealCard(root, meal) {
+  mealCardOf(root, meal)?.scrollIntoView({ block: "nearest" });
+}
+
+/** 只重画今日卡片与方案列表里今天那一行：整块重画会丢焦点，也把用户拉到页面顶部 */
+function renderTodayOnly(root, day) {
+  const current = qs("[data-today]", root);
+  if (!current || !view.state?.today) return false;
+  const holder = document.createElement("div");
+  holder.innerHTML = todayCardHtml(view.state).trim();
+  const next = holder.firstElementChild;
+  if (!next) return false;
+  current.replaceWith(next);
+  const slot = qs("[data-timeline]", next);
+  if (slot && view.state.timeline) {
+    slot.innerHTML = "";
+    const node = renderTimeline(view.state.timeline, { now: true });
+    if (node) slot.appendChild(node);
+  }
+  bindMealCheckin(root, next);
+  if (day?.date) {
+    const row = root.querySelector(`.day-card[data-date="${day.date}"]`);
+    if (row) {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = dayRowHtml(day).trim();
+      const fresh = wrap.firstElementChild;
+      if (fresh) {
+        row.replaceWith(fresh);
+        const mini = qs("[data-day-timeline]", fresh);
+        if (mini && day.timeline) {
+          mini.innerHTML = "";
+          const node = renderTimeline(day.timeline, { mini: true });
+          if (node) mini.appendChild(node);
+        }
+      }
+    }
+  }
+  return true;
+}
+
 /** 三餐一键确认：用响应里的今天 + 三餐统计就地重画，不重新拉整页 */
 async function checkin(root, btn) {
   if (view.pending) return;
@@ -809,17 +920,26 @@ async function checkin(root, btn) {
   const eaten = btn.dataset.eaten === "1";
   const refused = btn.dataset.refused === "1";
   const date = view.state?.today?.date || view.options?.today || null;
+  const before = mealTimeSnapshot(root);
+  const preview = view.state?.today?.refusal_preview;
   view.pending = true;
   btn.disabled = true;
+  // 点击的那一瞬间先把午餐/晚餐改成预测值：等网络往返时用户已经看到结果，
+  // 不用等刷新、也不用往下滚去找那两张卡片。响应回来后再用真实值校准。
+  if (refused) applyPreviewTimes(root, preview);
   try {
     const body = await adviceApi.checkin({ meal, eaten, date, refused });
     mergeCheckinState(body);
-    renderPlanView(root);
+    renderTodayOnly(root, body.today);
+    flashMovedTimes(root, before);
+    anchorMealCard(root, meal);
     toastOk(t("advice.meal.checkin.saved"));
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) throw err;
     toastErr(err instanceof Error ? err.message : t("advice.checkinFailed"));
+    // 失败必须回滚乐观更新的数字：整块重画一次拿服务器状态
     renderPlanView(root);
+    anchorMealCard(root, meal);
   } finally {
     view.pending = false;
   }

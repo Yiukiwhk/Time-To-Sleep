@@ -606,6 +606,12 @@
   font-weight: 600;
 }
 
+/* 点之前先看到结果：这行常驻在「不想吃」按钮下方 */
+.today-meal .meal-preview { margin: 2px 0 0; color: var(--text-soft); }
+/* 点下去的一瞬间时间就变了：闪一下 + 一行「旧 → 新」，2.6 秒后自己消失 */
+.today-meal.tm-flash [data-best] { color: var(--accent); }
+.today-meal .meal-moved { margin: 2px 0 0; color: var(--accent); font-weight: 600; }
+
 /* 每日方案里的三餐速览（比今日卡片轻一档） */
 .day-meals { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 
@@ -821,8 +827,6 @@
   background: rgba(5, 8, 12, 0.5);
   z-index: 55;
 }
-
-.optional-picker .time-wheel { width: 100%; justify-content: space-between; }
 
 .legend {
   display: flex;

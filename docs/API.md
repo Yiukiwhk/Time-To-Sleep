@@ -212,8 +212,6 @@
   "user_id": 2,
   "sleep_time": "23:40",
   "wake_time": "07:20",
-  "latest_wake_time": null,
-  "earliest_sleep_time": null,
   "meal_breakfast": true,
   "meal_lunch": true,
   "meal_dinner": false,
@@ -227,6 +225,9 @@
 ```
 
 `duration_minutes` 由服务端按跨零点规则计算（服务端计算，客户端不用传）。
+
+> 记录里**没有**"最晚起床 / 最早入睡"两个字段了：这两个约束已按用户要求删除，
+> 请求里带上它们不会报错，但服务端不会保存、也不会再据此限制计划。
 成功返回 **201**；10 秒内重复写入返回 429 `error.write_too_fast`。
 
 ### 记录查询与维护
@@ -335,7 +336,18 @@
       "tips": ["advice.tip.keep_regular"]
     }
   ],
-  "today": {"index": 0, "date": "2026-02-20", "sleep_time": "23:45", "wake_time": "07:05", "duration_minutes": 440, "shift_sleep_minutes": -35, "shift_wake_minutes": -35, "step_minutes": 35, "meals": {}, "timeline": {}, "tips": []},
+  "today": {
+    "index": 0, "date": "2026-02-20", "sleep_time": "23:45", "wake_time": "07:05",
+    "duration_minutes": 440, "shift_sleep_minutes": -35, "shift_wake_minutes": -35,
+    "step_minutes": 35, "meals": {}, "timeline": {}, "tips": [],
+    "refusal_preview": {
+      "date": "2026-02-20",
+      "lunch": {"best_time": "11:00", "window_start": "11:00", "window_end": "13:00"},
+      "dinner": {"best_time": "18:15", "window_start": "18:15", "window_end": "19:45"},
+      "lunch_shift_minutes": 60,
+      "dinner_shift_minutes": 60
+    }
+  },
   "timeline": {"axis_start": "23:45", "axis_end": "23:45", "span_minutes": 1440, "items": []},
   "plan_meta": {"start_date": "2026-02-20", "target_date": "2026-02-26", "postponed_days": 0, "replans": 0, "saved": true, "plan_id": 41},
   "generated_at": "2026-02-20T07:30:00",
@@ -345,6 +357,13 @@
 
 `timeline.items` 的元素形如 `{"kind": "sleep"|"meal", "start": "HH:MM", "end": "HH:MM",
 "minutes": 460, "meal": "breakfast"}`，跨零点按轴起点取模处理（见 [ALGORITHM.md](ALGORITHM.md)）。
+
+今日卡片上另有一个 **`today.refusal_preview`**（只有今天有）：它预先算好“现在点『不想吃早餐』会把
+午餐 / 晚餐挪到几点”，字段与 `meals.*` 同构（`best_time` / `window_start` / `window_end`），外加
+`lunch_shift_minutes` / `dinner_shift_minutes`。前端据此在**点击瞬间**就改掉卡片上的数字（实测
+25ms，而这次打卡请求往返约 1.5s），不用等响应、也不用刷新页面；预测值与打卡后真正落库的时间
+一致，由 `tests/test_advice_engine.py::test_refusal_preview_matches_the_real_checkin` 守着。
+当天已经是“不想吃”状态时前端不再显示这句提示（再点一次没有意义）。
 
 ### `GET /api/advice/plan`
 
@@ -370,6 +389,8 @@
   不会早于现实窗口起点 11:00，所以实测浮动在 60–90 分钟之间）；
   给非早餐的餐次传 `true` 会被服务端忽略。点“已吃”即可撤销。
 - `date` 省略表示今天。
+- `meal_plan.breakfast_missed_today`：今天的早餐是不是“跳过 / 不想吃”（`refused_breakfast_today`
+  只看“不想吃”）。它是 `today.refusal_preview` 里判断“再点一次”该怎么算阶梯的依据。
 
 ```json
 {
@@ -381,6 +402,7 @@
   "meal_plan": {
     "breakfast_skipped_streak": 1,
     "lunch_shift_minutes": 60,
+    "breakfast_missed_today": true,
     "refused_breakfast_today": true,
     "dinner_shift_minutes": 60,
     "history": {"breakfast": {"eaten": 4, "skipped": 1, "refused": 1, "unknown": 2}, "lunch": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}, "dinner": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}},
@@ -391,8 +413,10 @@
 }
 ```
 
-响应除 `meal_plan` 外还带 `today`（当天卡片，含三餐与时间图）与 `timeline`，前端据此刻度重画，
-不必再拉一次整页。
+响应除 `meal_plan` 外还带 `today`（当天卡片，含三餐与时间图，以及重算后的 `refusal_preview`）与
+`timeline`，前端据此刻度重画，不必再拉一次整页。界面上的即时反馈分两步：点击时先用**点击前**
+那份 `today.refusal_preview` 直接改数字并标出“旧 → 新”，响应回来后再用这里的 `today` 校正
+（两者一致，见上文 `test_refusal_preview_matches_the_real_checkin`）；失败则回滚到点击前的快照。
 
 连续多天未吃早餐会让午餐建议逐步前移（`shifted_minutes` 递增，每次 60 / 90 / 120 分钟，
 下限是起床后 2 小时与现实窗口起点 11:00 中更晚的那个），规则见 [ALGORITHM.md](ALGORITHM.md)。

@@ -407,6 +407,44 @@ def test_refused_breakfast_pulls_today_meals_earlier(client: TestClient) -> None
     assert other["meal_plan"]["refused_breakfast_today"] is False
 
 
+def test_refusal_preview_matches_the_real_checkin(client: TestClient) -> None:
+    """前端"点了会变成…"的预测必须与点下去之后的真实结果逐字段一致。
+
+    预测是后端用真正生效的叠加函数在副本上算出来的（refusal_preview）。两条路径一旦
+    分叉，界面就会自相矛盾：提示"午餐 11:00"，点完却变成 11:30。
+    """
+    username = "previewmatch"
+    _make_user(username, rows=_records_pattern("00:30", "08:30"), target=("23:00", "07:00"))
+    _login(client, username)
+
+    plan = client.post("/api/advice", json={"mode": "slow", "days": 3}).json()
+    preview = plan["today"]["refusal_preview"]
+    assert preview and preview["date"] == TODAY.isoformat()
+    assert preview["dinner_shift_minutes"] == advice_service.REFUSED_BREAKFAST_SHIFT
+    assert preview["lunch"]["best_time"] and preview["dinner"]["best_time"]
+
+    body = client.post(
+        "/api/advice/checkin",
+        json={"meal": "breakfast", "eaten": False, "refused": True},
+    ).json()
+    for key in ("lunch", "dinner"):
+        real = body["today"]["meals"][key]
+        for field in ("best_time", "window_start", "window_end"):
+            assert preview[key][field] == real[field], (key, field, preview[key], real)
+
+    # 刷新页面走的是读取路径（不是刚生成的内存对象），预测同样要在场且一致
+    state = client.get("/api/advice/plan").json()
+    assert state["today"]["refusal_preview"] == preview
+
+    # 撤销之后：今天的真实时间回到基准，而预测仍然是"再点一次会变成的时间"
+    undone = client.post(
+        "/api/advice/checkin", json={"meal": "breakfast", "eaten": True}
+    ).json()
+    fresh = undone["today"]["refusal_preview"]
+    assert fresh and fresh["lunch"]["best_time"] == preview["lunch"]["best_time"]
+    assert fresh["dinner"]["best_time"] != undone["today"]["meals"]["dinner"]["best_time"]
+
+
 # --------------------------------------------------------------------------- #
 # 快照 / 偏离 / 重算
 # --------------------------------------------------------------------------- #

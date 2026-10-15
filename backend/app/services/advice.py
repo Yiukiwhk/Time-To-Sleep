@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date, timedelta
 
 from sqlalchemy import select
@@ -189,13 +190,22 @@ def breakfast_skipped_streak(history: dict, *, today: date | None = None) -> int
     return streak
 
 
-def refused_breakfast_today(history: dict, *, today: date | None = None) -> bool:
-    """今天的早餐是不是被明确标成了"不想吃"（只有它会把今天的晚餐也往前挪）。"""
+def breakfast_state_today(history: dict, *, today: date | None = None) -> str:
+    """今天早餐的确认状态：unknown / eaten / skipped / refused。
+
+    拒绝早餐的"预测"要靠它判断阶梯要不要 +1：今天已经标成跳过/不想吃时，
+    连续天数里已经算过今天，再点一次不会再往前挪一格。
+    """
     today_iso = (today or date.today()).isoformat()
     for item in history["days"]:
         if item["date"] == today_iso:
-            return item["meals"]["breakfast"]["state"] == "refused"
-    return False
+            return item["meals"]["breakfast"]["state"]
+    return "unknown"
+
+
+def refused_breakfast_today(history: dict, *, today: date | None = None) -> bool:
+    """今天的早餐是不是被明确标成了"不想吃"（只有它会把今天的晚餐也往前挪）。"""
+    return breakfast_state_today(history, today=today) == "refused"
 
 
 def lunch_shift_minutes(streak: int) -> int:
@@ -216,8 +226,6 @@ def _basis(records: list[SleepRecord]) -> dict:
             "sleep_minutes": IDEAL_SLEEP,
             "wake_minutes": IDEAL_WAKE,
             "duration_minutes": IDEAL_DURATION,
-            "avg_latest_wake_minutes": None,
-            "avg_earliest_sleep_minutes": None,
             "latest_record_date": None,
         }
 
@@ -228,8 +236,6 @@ def _basis(records: list[SleepRecord]) -> dict:
 
     sleep_mean = circular_mean_minutes(sleep_values, weights)
     wake_mean = circular_mean_minutes(wake_values, weights)
-    latest_wake = [parse_hhmm(r.latest_wake_time) for r in ordered if r.latest_wake_time]
-    earliest_sleep = [parse_hhmm(r.earliest_sleep_time) for r in ordered if r.earliest_sleep_time]
 
     durations = [sleep_duration_minutes(s, w) for s, w in zip(sleep_values, wake_values)]
     avg_duration = int(round(sum(durations) / len(durations)))
@@ -239,15 +245,17 @@ def _basis(records: list[SleepRecord]) -> dict:
         "sleep_minutes": sleep_mean,
         "wake_minutes": wake_mean,
         "duration_minutes": avg_duration,
-        "avg_latest_wake_minutes": circular_mean_minutes(latest_wake) if latest_wake else None,
-        "avg_earliest_sleep_minutes": circular_mean_minutes(earliest_sleep) if earliest_sleep else None,
         "latest_record_date": ordered[-1].record_date,
         "duration_minutes_latest": durations[-1],
     }
 
 
-def _system_target(basis: dict, records: list[SleepRecord]) -> dict:
-    """系统推荐目标：向健康作息收敛，但尊重用户设置的最晚起床/最早入睡约束。"""
+def _system_target(basis: dict) -> dict:
+    """系统推荐目标：向健康作息收敛。
+
+    早期这里还会拿用户填的"最晚起床 / 最早入睡"当硬上限与下限，那两个功能已按用户
+    要求删除：目标只由实际作息均值与健康区间决定，不再受额外约束牵制。
+    """
     sleep_target = basis["sleep_minutes"]
     wake_target = basis["wake_minutes"]
 
@@ -260,17 +268,6 @@ def _system_target(basis: dict, records: list[SleepRecord]) -> dict:
     wake_shift = circular_diff_minutes(wake_target, IDEAL_WAKE)
     wake_target += max(-45, min(45, wake_shift))
 
-    latest_wake_values = [parse_hhmm(r.latest_wake_time) for r in records if r.latest_wake_time]
-    if latest_wake_values:
-        limit = circular_mean_minutes(latest_wake_values)
-        if circular_diff_minutes(wake_target, limit) > 0:
-            wake_target = limit
-        sleep_target = min(sleep_target, wake_target - IDEAL_DURATION + 60)
-    earliest_sleep_values = [parse_hhmm(r.earliest_sleep_time) for r in records if r.earliest_sleep_time]
-    if earliest_sleep_values:
-        floor = circular_mean_minutes(earliest_sleep_values)
-        if circular_diff_minutes(floor, sleep_target) > 0:
-            sleep_target = floor
     if sleep_duration_minutes(sleep_target, wake_target) < 6 * 60:
         wake_target = sleep_target + 6 * 60
 
@@ -648,7 +645,6 @@ def _tips(
     mode: str,
     sleep_minutes: int,
     duration: int,
-    wake_conflict: bool,
     *,
     direction: int,
     step_minutes: int,
@@ -663,8 +659,6 @@ def _tips(
         tips.append("advice.tip.too_short")
     elif duration > 10 * 60:
         tips.append("advice.tip.too_long")
-    if wake_conflict:
-        tips.append("advice.tip.wake_conflict")
     if sleep_minutes >= DAY - 60 or sleep_minutes <= 60:
         tips.append("advice.tip.midnight")
     if step_minutes > 0:
@@ -789,7 +783,7 @@ def build_advice(
         }
         source = "custom_target"
     else:
-        target = _system_target(basis, records)
+        target = _system_target(basis)
 
     mode = "slow" if mode == "slow" else "fast"
     plan_days = 1 if mode == "fast" else max(1, min(30, days or DEFAULT_SLOW_DAYS))
@@ -819,16 +813,11 @@ def build_advice(
     )
     direction = steps["direction"]
 
-    latest_wake_limit = basis.get("avg_latest_wake_minutes")
     plan: list[dict] = []
     for index, (cumulative_sleep, cumulative_wake) in enumerate(steps["cumulative"]):
         sleep_minutes = (basis["sleep_minutes"] + cumulative_sleep) % DAY
         wake_minutes = (basis["wake_minutes"] + cumulative_wake) % DAY
         duration = sleep_duration_minutes(sleep_minutes, wake_minutes)
-        wake_conflict = (
-            latest_wake_limit is not None
-            and circular_diff_minutes(wake_minutes, latest_wake_limit) < 0
-        )
         step_minutes = 0
         if index > 0:
             previous_sleep = steps["cumulative"][index - 1][0]
@@ -860,7 +849,6 @@ def build_advice(
                     mode,
                     sleep_minutes,
                     duration,
-                    wake_conflict,
                     direction=direction,
                     step_minutes=step_minutes,
                 ),
@@ -886,6 +874,16 @@ def build_advice(
         (index for index, day in enumerate(plan) if day["date"] == today.isoformat()), 0
     )
     today_card = plan[today_index] if plan else None
+    # 今日卡片自带"拒绝早餐的预测"：刚生成方案时前端也能在按钮下方提示"点了会变成…"
+    if today_card is not None:
+        preview = refusal_preview(
+            {"plan": plan},
+            today=today,
+            streak=streak,
+            missed_today=breakfast_state_today(history, today=today) in ("skipped", "refused"),
+        )
+        if preview:
+            today_card["refusal_preview"] = preview
     target_date = plan[-1]["date"] if plan else today.isoformat()
 
     return {
@@ -897,16 +895,6 @@ def build_advice(
             "sleep_time": format_hhmm(basis["sleep_minutes"]),
             "wake_time": format_hhmm(basis["wake_minutes"]),
             "duration_minutes": basis["duration_minutes"],
-            "latest_wake_time": (
-                format_hhmm(basis["avg_latest_wake_minutes"])
-                if basis.get("avg_latest_wake_minutes") is not None
-                else None
-            ),
-            "earliest_sleep_time": (
-                format_hhmm(basis["avg_earliest_sleep_minutes"])
-                if basis.get("avg_earliest_sleep_minutes") is not None
-                else None
-            ),
             "latest_record_date": basis.get("latest_record_date"),
         },
         "target": {
@@ -988,6 +976,46 @@ def apply_refused_breakfast_overlay(
     return payload
 
 
+def refusal_preview(
+    payload: dict | None, *, today: date, streak: int = 0, missed_today: bool = False
+) -> dict | None:
+    """今天点"不想吃早餐"之后，午餐与晚餐会变成几点。
+
+    用途是让前端"点之前就能提示、点下去瞬间就能改数字"，不必等一次网络往返：
+    它刻意复用真正生效的 apply_refused_breakfast_overlay()，所以预测与打卡后的
+    结果同源，不会出现"提示一套、落库另一套"。在副本上算，不动传入的 payload。
+
+    阶梯要按**点完之后**的连续天数算：点下去今天就算"没吃早餐"，连续天数 +1
+    会立刻把午餐多推一格；今天已经标成跳过/不想吃（missed_today）时不再累加。
+    """
+    if not payload:
+        return None
+    shift = lunch_shift_minutes(streak if missed_today else streak + 1)
+    overlay = apply_refused_breakfast_overlay(
+        deepcopy(payload), today=today, lunch_shift=shift, refused=True
+    )
+    row = day_for((overlay or {}).get("plan") or [], today)
+    meals = (row or {}).get("meals") or {}
+    lunch, dinner = meals.get("lunch"), meals.get("dinner")
+    if not row or not lunch or not dinner:
+        return None
+
+    def _window(meal: dict) -> dict:
+        return {
+            "best_time": meal.get("best_time"),
+            "window_start": meal.get("window_start"),
+            "window_end": meal.get("window_end"),
+        }
+
+    return {
+        "date": row.get("date"),
+        "lunch": _window(lunch),
+        "dinner": _window(dinner),
+        "dinner_shift_minutes": REFUSED_BREAKFAST_SHIFT,
+        "lunch_shift_minutes": shift,
+    }
+
+
 def day_for(plan: list[dict], the_date: date) -> dict | None:
     """从计划里取"今天"这天：精确命中优先，否则取最近的一天，最后兜底第一天。
 
@@ -1039,6 +1067,8 @@ __all__ = [
     "build_advice",
     "day_for",
     "apply_refused_breakfast_overlay",
+    "refusal_preview",
+    "breakfast_state_today",
     "meal_history",
     "breakfast_skipped_streak",
     "refused_breakfast_today",

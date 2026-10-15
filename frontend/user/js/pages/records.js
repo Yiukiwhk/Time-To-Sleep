@@ -4,7 +4,7 @@
 
 import { recordApi, ApiError } from "/shared/api.js";
 import { t } from "/shared/i18n.js";
-import { createOptionalTimePicker, createTimePicker } from "/shared/timepicker.js";
+import { createTimePicker } from "/shared/timepicker.js";
 import {
   confirmDialog,
   debounce,
@@ -72,13 +72,6 @@ function mealCell(record) {
         `<span class="meal-dot ${on ? "on" : ""}" title="${label}">${label}</span>`
     )
     .join("")}</span>`;
-}
-
-function constraintText(record) {
-  const parts = [];
-  if (record.latest_wake_time) parts.push(`${t("records.latestWake")} ${record.latest_wake_time}`);
-  if (record.earliest_sleep_time) parts.push(`${t("records.earliestSleep")} ${record.earliest_sleep_time}`);
-  return parts.length ? parts.join(" · ") : t("records.noConstraint");
 }
 
 function cooldownRemaining() {
@@ -193,7 +186,6 @@ function renderRows(root) {
           <span class="badge">${escapeHtml(fmtDuration(record.duration_minutes))}</span>
         </div>
         <div class="rc-meta">
-          <span>${escapeHtml(constraintText(record))}</span>
           ${record.note ? `<span>${escapeHtml(record.note)}</span>` : ""}
         </div>
         <div class="row" style="margin-top:10px; justify-content:flex-end">
@@ -322,11 +314,6 @@ async function openRecordForm(root, record = null) {
             <div id="f-wake"></div>
           </div>
         </div>
-        <div class="form-row">
-          <div id="f-latest-wake"></div>
-          <div id="f-earliest-sleep"></div>
-        </div>
-        <p class="tiny muted">${escapeHtml(t("records.constraintHint"))}</p>
         <div class="field">
           <label>${escapeHtml(t("records.meals"))}</label>
           <div class="row-wrap">
@@ -345,14 +332,6 @@ async function openRecordForm(root, record = null) {
     onMount: (modal) => {
       const sleepPicker = createTimePicker(qs("#f-sleep", modal), { value: record?.sleep_time || "23:30" });
       const wakePicker = createTimePicker(qs("#f-wake", modal), { value: record?.wake_time || "07:30" });
-      const latestPicker = createOptionalTimePicker(qs("#f-latest-wake", modal), {
-        label: t("records.latestWake"),
-        value: record?.latest_wake_time || null,
-      });
-      const earliestPicker = createOptionalTimePicker(qs("#f-earliest-sleep", modal), {
-        label: t("records.earliestSleep"),
-        value: record?.earliest_sleep_time || null,
-      });
       const breakfast = qs("#f-breakfast", modal);
       const lunch = qs("#f-lunch", modal);
       const dinner = qs("#f-dinner", modal);
@@ -364,8 +343,6 @@ async function openRecordForm(root, record = null) {
         record_date: qs("#f-date", modal).value,
         sleep_time: sleepPicker.value,
         wake_time: wakePicker.value,
-        latest_wake_time: latestPicker.value,
-        earliest_sleep_time: earliestPicker.value,
         meal_breakfast: breakfast.checked,
         meal_lunch: lunch.checked,
         meal_dinner: dinner.checked,

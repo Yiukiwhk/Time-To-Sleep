@@ -30,10 +30,13 @@ router = APIRouter(tags=["advice"])
 def _meal_plan_state(db, user: User, today: date) -> dict:
     history = advice_service.meal_history(db, user.id, today=today)
     streak = advice_service.breakfast_skipped_streak(history, today=today)
-    refused = advice_service.refused_breakfast_today(history, today=today)
+    today_state = advice_service.breakfast_state_today(history, today=today)
+    refused = today_state == "refused"
     return {
         "breakfast_skipped_streak": streak,
         "lunch_shift_minutes": advice_service.lunch_shift_minutes(streak),
+        # 今天早餐已经标成"跳过/不想吃"：拒绝早餐的预测据此决定阶梯要不要再 +1
+        "breakfast_missed_today": today_state in ("skipped", "refused"),
         # "不想吃"：今天这一天额外把晚餐也往前挪的分钟数（前端用它加提示）
         "refused_breakfast_today": refused,
         "dinner_shift_minutes": (
@@ -106,6 +109,16 @@ def _state(db, user: User, *, today: date, with_auto: bool = True) -> dict:
         )
 
     day = advice_service.day_for(payload.get("plan") or [], today)
+    # "点了'不想吃早餐'会变成几点"的预测随今日卡片一起下发（与打卡结果同源）：
+    # 前端在按钮下方常驻提示，点击的瞬间先把数字改掉，等响应回来再校准
+    preview = advice_service.refusal_preview(
+        payload,
+        today=today,
+        streak=int(meal_plan.get("breakfast_skipped_streak") or 0),
+        missed_today=bool(meal_plan.get("breakfast_missed_today")),
+    )
+    if day is not None and preview:
+        day = {**day, "refusal_preview": preview}
     return {
         "has_plan": True,
         "plan": payload,

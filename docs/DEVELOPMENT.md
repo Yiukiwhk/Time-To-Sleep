@@ -184,7 +184,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 
 ## Windows 侧踩坑
 
-- **前端少写一个 import 不会报错，只会在用户点击时炸**：`records.js` 里 `createOptionalTimePicker`
+- **前端少写一个 import 不会报错，只会在用户点击时炸**：`records.js` 里 `createTimePicker`
   忘了 import，`onMount` 抛 `ReferenceError`，于是“新增记录”点了完全没反应（页面上既没有请求、
   也没有提示）。改动前端后跑 `python scripts/check_frontend_imports.py`，并在验收里**真点一次表单**
   （`-Modes records` 那档会断言真的发出了 `POST /api/records` 且返回 201）。

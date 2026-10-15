@@ -103,11 +103,18 @@
 - “不想吃”不重写已保存的计划快照，而是在读取时叠加（`apply_refused_breakfast_overlay()`）：
   否则 `plan_meta.replans`（“已重算 N 次”）会被打卡动作悄悄推高，历史计划也会被改写。
   点“已吃”即撤销（同一行 `refused` 写回 `false`）。
+- **“点了会发生什么”先算出来**：`refusal_preview(payload, today, streak, missed_today)` 在生成/读取
+  计划时就把“现在点不想吃”的结果算一遍（内部在深拷贝上叠加，再跑一次 `day_for`），随今日卡片
+  以 `today.refusal_preview` 下发。它按**点完之后**的阶梯算（`streak if missed_today else streak + 1`）——
+  这一点被 `::test_refusal_preview_matches_the_real_checkin` 抓过一次：早先用点击前的阶梯，
+  窗口有空间时预测会比真实落库的时间差一格。所以界面上点击后立刻显示的数字，与请求回来的
+  数字必须逐字段相同（`best_time` / `window_start` / `window_end`）。
 - **文案约束**：带参数的句子（`{streak}` / `{shift}`）一律由前端用数字字段拼（`tp()`），后端
   只返回不带参数的文案键 —— 否则页面上会原样显示 `{streak}`。
 - 测试：`::test_lunch_shifts_earlier_when_breakfast_skipped`、
   `::test_lunch_midpoint_keeps_gaps_reasonable_on_long_days`、
-  `::test_checkin_eaten_true_writes_back`、`::test_refused_breakfast_pulls_today_meals_earlier`。
+  `::test_checkin_eaten_true_writes_back`、`::test_refused_breakfast_pulls_today_meals_earlier`、
+  `::test_refusal_preview_matches_the_real_checkin`。
 
 ## 6. 偏离三档
 

@@ -115,8 +115,8 @@ class SleepRecord(Base, TimestampMixin):
     )
     sleep_time: Mapped[str] = mapped_column(String(5), nullable=False)          # 入睡时间
     wake_time: Mapped[str] = mapped_column(String(5), nullable=False)           # 起床时间
-    latest_wake_time: Mapped[str | None] = mapped_column(String(5), nullable=True)   # 最晚起床
-    earliest_sleep_time: Mapped[str | None] = mapped_column(String(5), nullable=True)  # 最早入睡
+    # 曾经有 latest_wake_time / earliest_sleep_time 两列（最晚起床 / 最早入睡约束），
+    # 这两个功能已按用户要求删除：模型与接口都不再认它们，老库里的列留着但没人读写。
     meal_breakfast: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     meal_lunch: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     meal_dinner: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

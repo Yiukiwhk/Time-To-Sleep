@@ -103,8 +103,6 @@ def main() -> int:
             json={
                 "sleep_time": "01:30",
                 "wake_time": "09:00",
-                "latest_wake_time": "08:00",
-                "earliest_sleep_time": "23:00",
                 "meal_breakfast": True,
                 "meal_lunch": True,
                 "meal_dinner": False,

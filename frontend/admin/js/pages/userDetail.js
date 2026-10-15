@@ -217,18 +217,6 @@ export async function renderUserDetailPage(view, { ctx, navigate, api, isStale }
           cell: (row) => escapeHtml(fmtDuration(row.duration_minutes)),
         },
         {
-          key: "latest_wake_time",
-          label: t("field.latest_wake_time"),
-          className: "narrow",
-          cell: (row) => `<span class="mono small">${escapeHtml(row.latest_wake_time || "-")}</span>`,
-        },
-        {
-          key: "earliest_sleep_time",
-          label: t("field.earliest_sleep_time"),
-          className: "narrow",
-          cell: (row) => `<span class="mono small">${escapeHtml(row.earliest_sleep_time || "-")}</span>`,
-        },
-        {
           key: "updated_at",
           label: t("records.updatedAt"),
           className: "narrow",

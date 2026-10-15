@@ -123,8 +123,6 @@ class UserPublic(ORMModel):
 class SleepRecordBase(BaseModel):
     sleep_time: str
     wake_time: str
-    latest_wake_time: str | None = None
-    earliest_sleep_time: str | None = None
     meal_breakfast: bool = True
     meal_lunch: bool = True
     meal_dinner: bool = True
@@ -138,11 +136,6 @@ class SleepRecordBase(BaseModel):
         if result is None:
             raise ValueError("error.invalid_time")
         return result
-
-    @field_validator("latest_wake_time", "earliest_sleep_time")
-    @classmethod
-    def _check_optional_time(cls, value: str | None) -> str | None:
-        return _validate_time(value)
 
     @field_validator("record_date")
     @classmethod
@@ -174,8 +167,6 @@ class SleepRecordCreate(SleepRecordBase):
 class SleepRecordUpdate(BaseModel):
     sleep_time: str | None = None
     wake_time: str | None = None
-    latest_wake_time: str | None = None
-    earliest_sleep_time: str | None = None
     meal_breakfast: bool | None = None
     meal_lunch: bool | None = None
     meal_dinner: bool | None = None
@@ -189,11 +180,6 @@ class SleepRecordUpdate(BaseModel):
         if value is not None and result is None:
             raise ValueError("error.invalid_time")
         return result
-
-    @field_validator("latest_wake_time", "earliest_sleep_time")
-    @classmethod
-    def _check_optional_time(cls, value: str | None) -> str | None:
-        return _validate_time(value)
 
     @field_validator("record_date")
     @classmethod
@@ -211,8 +197,6 @@ class SleepRecordOut(ORMModel):
     user_id: int
     sleep_time: str
     wake_time: str
-    latest_wake_time: str | None = None
-    earliest_sleep_time: str | None = None
     meal_breakfast: bool
     meal_lunch: bool
     meal_dinner: bool
@@ -297,6 +281,28 @@ class MealPlan(BaseModel):
     note: str | None = None                 # i18n 键
 
 
+class MealPreview(BaseModel):
+    """某一餐的预测结果（只有时间字段：前端拿它改数字与显示"旧 → 新"）。"""
+
+    best_time: str | None = None
+    window_start: str | None = None
+    window_end: str | None = None
+
+
+class RefusalPreview(BaseModel):
+    """今天点"不想吃早餐"之后午餐与晚餐会变成几点。
+
+    由后端用真正生效的叠加函数算好（与打卡结果同源），前端用它做两件事：点击前
+    在按钮下方提示"点了会变成…"，点击瞬间先把数字改掉、等响应回来再校准。
+    """
+
+    date: str | None = None
+    lunch: MealPreview
+    dinner: MealPreview
+    lunch_shift_minutes: int = 0
+    dinner_shift_minutes: int = 0
+
+
 class DayPlan(BaseModel):
     index: int
     date: str
@@ -309,6 +315,8 @@ class DayPlan(BaseModel):
     meals: dict[str, MealPlan]
     timeline: dict | None = None
     tips: list[str] = Field(default_factory=list)
+    # 只有"今天"这一天会带：拒绝早餐的预测（未来日不受"不想吃"影响）
+    refusal_preview: RefusalPreview | None = None
 
 
 class AdviceResponse(BaseModel):

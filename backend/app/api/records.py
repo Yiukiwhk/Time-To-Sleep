@@ -194,8 +194,6 @@ def create_my_record(
                 user_id=user.id,
                 sleep_time=payload.sleep_time,
                 wake_time=payload.wake_time,
-                latest_wake_time=payload.latest_wake_time,
-                earliest_sleep_time=payload.earliest_sleep_time,
                 meal_breakfast=payload.meal_breakfast,
                 meal_lunch=payload.meal_lunch,
                 meal_dinner=payload.meal_dinner,

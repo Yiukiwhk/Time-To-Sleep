@@ -263,6 +263,34 @@ grep_file "i18n: warning branch"    "$WEBROOT/shared/i18n.js"                   
 grep_file "auth service: reset"     "$APP_DIR/backend/app/services/auth_service.py"  'def count_failures'
 grep_file "api admin: unlock reset" "$APP_DIR/backend/app/api/admin.py"              'LoginAttempt.username == target.username'
 
+# This release removes the "latest wake / earliest sleep" constraints (the old DB
+# columns stay behind as dead columns) and ships the refusal preview, so the check
+# is both "the new code is here" and "the removed feature is really gone".
+grep_absent() {  # grep_absent <label> <file> <needle>
+    local label="$1" file="$2" needle="$3" hits
+    hits=$(grep -c -- "$needle" "$file" 2>/dev/null || true)
+    if [ "${hits:-0}" -eq 0 ]; then
+        printf '  ok   %-30s %s absent\n' "$label" "$needle"
+    else
+        printf '  FAIL %-30s %s still present in %s\n' "$label" "$needle" "$file"
+        fail=$((fail + 1))
+    fi
+}
+echo "== 4f. constraints removed; the refusal preview is deployed =="
+grep_file "advice service: preview"    "$APP_DIR/backend/app/services/advice.py"  'def refusal_preview'
+grep_file "advice service: state fn"   "$APP_DIR/backend/app/services/advice.py"  'def breakfast_state_today'
+grep_file "schemas: preview field"     "$APP_DIR/backend/app/schemas.py"          'refusal_preview: RefusalPreview'
+grep_file "api advice: preview wiring" "$APP_DIR/backend/app/api/advice.py"       'breakfast_missed_today'
+grep_file "frontend: preview hint"     "$WEBROOT/user/js/pages/advice.js"         'data-refusal-preview'
+grep_file "frontend: today redraw"     "$WEBROOT/user/js/pages/advice.js"         'renderTodayOnly'
+grep_file "frontend: moved label"      "$WEBROOT/user/js/pages/advice.js"         'meal-moved'
+grep_file "i18n: preview key"          "$WEBROOT/shared/i18n.js"                  'advice.meal.refusal_preview'
+grep_file "i18n: moved key"            "$WEBROOT/shared/i18n.js"                  'advice.meal.moved'
+grep_absent "records: old field gone"  "$WEBROOT/user/js/pages/records.js"        'latest_wake_time'
+grep_absent "timepicker: old picker"   "$WEBROOT/shared/timepicker.js"            'createOptionalTimePicker'
+grep_absent "i18n: old picker keys"    "$WEBROOT/shared/i18n.js"                  'pickerLatestWake'
+grep_absent "schemas: old field gone"  "$APP_DIR/backend/app/schemas.py"          'latest_wake_time'
+
 echo
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"

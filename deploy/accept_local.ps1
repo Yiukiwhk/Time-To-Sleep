@@ -303,6 +303,14 @@ if (-not $SkipBrowser) {
                     Check "today dinner moved 60 minutes earlier after refusing" ($bDinner -ge 0 -and $aDinner -eq ($bDinner - 60)) ("before=" + $rf.before.dinner + " after=" + $rf.after.dinner)
                     Check "today lunch did not move later after refusing" ($bLunch -ge 0 -and $aLunch -le $bLunch) ("before=" + $rf.before.lunch + " after=" + $rf.after.lunch)
                     Check "today lunch moved earlier when the window leaves room" ($bLunch -le $windowFloor -or $aLunch -lt $bLunch) ("before=" + $rf.before.lunch + " after=" + $rf.after.lunch)
+                    # 即时反馈：不点也先看得见"点了会变成几点"；点下去要在网络往返回来之前
+                    # 就改好数字（乐观改写）；而且预测值必须就是最后真正落下来的值。
+                    $previewLunch = "$($rf.preview_api.lunch)"
+                    $previewDinner = "$($rf.preview_api.dinner)"
+                    Check "the card says what refusing will do before the click" (($rf.preview_hint -match "点了会变成|Tapping it makes") -and ($previewLunch -ne "") -and ($previewDinner -ne "")) ("hint='" + $rf.preview_hint + "' api=" + $previewLunch + "/" + $previewDinner)
+                    Check "clicking updates the times before the response lands" (($null -ne $rf.instant_ms) -and ($null -ne $rf.checkin_ms) -and ([int]$rf.instant_ms -lt [int]$rf.checkin_ms)) ("instant_ms=" + $rf.instant_ms + " checkin_ms=" + $rf.checkin_ms)
+                    Check "the predicted times are the ones that land" (($rf.after.lunch -eq $previewLunch) -and ($rf.after.dinner -eq $previewDinner)) ("after=" + $rf.after.lunch + "/" + $rf.after.dinner + " predicted=" + $previewLunch + "/" + $previewDinner)
+                    Check "moved times are labelled old to new" (@($rf.moved_labels | Where-Object { $_ -match "→|->" }).Count -ge 1) ("labels=" + (@($rf.moved_labels) -join " | "))
                     # 午餐的位移是"阶梯 ⊕ 拒绝"的较大值（接口返回的就是最终生效的那个）：
                     # 探针账号本身带着连续跳过早餐的阶梯，所以这里只能断言 ≥60；
                     # 精确等于 60 的是晚餐那条（晚餐没有阶梯，拒绝就是 −60）。
