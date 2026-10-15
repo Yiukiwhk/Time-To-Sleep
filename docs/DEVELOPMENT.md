@@ -86,11 +86,14 @@ backend\.venv\Scripts\python.exe run.py --reload
 # 1) 后端接口冒烟：进程内 TestClient，使用独立临时库，不碰 data/app.db
 backend/.venv/Scripts/python.exe tests/smoke_test.py
 
-# 2) 算法引擎单元测试（15 项：步长曲线、三餐窗口与现实作息窗口、午餐中点与前移、不想吃补偿、快照/偏离/重算、跨零点时间图）
+# 2) 算法引擎单元测试（16 项：步长曲线、三餐窗口与现实作息窗口、午餐中点与前移、不想吃补偿、快照/偏离/重算、跨零点时间图、打卡预测与实际一致）
 backend/.venv/Scripts/python.exe -m pytest tests/test_advice_engine.py -q
 
-# 3) 真实服务端到端（先启动服务，再另开终端执行；约 71 项断言）
+# 3) 真实服务端到端（先启动服务，再另开终端执行；约 74 项断言）
 backend/.venv/Scripts/python.exe tests/e2e_http.py http://127.0.0.1:8000
+#    线上 / 加固过的环境用环境变量换管理员凭据（真实口令不进仓库，默认值仍指向内置 bootstrap 账号）：
+#    SSP_E2E_ADMIN_USERNAME=tyq-admin SSP_E2E_ADMIN_PARTS=口令1,口令2,口令3 \
+#        backend/.venv/Scripts/python.exe tests/e2e_http.py http://你的服务器地址
 
 # 4) 静态资源与路由冒烟
 backend/.venv/Scripts/python.exe scripts/smoke_http.py http://127.0.0.1:8000

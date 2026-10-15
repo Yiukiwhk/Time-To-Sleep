@@ -6,18 +6,29 @@
 
 用法：
     backend/.venv/Scripts/python.exe tests/e2e_http.py [base_url]
+
+管理员凭据：默认是内置 bootstrap 账号（本地与 CI 直接可用）。线上或任何加固过的环境
+用环境变量覆盖，真实口令不进仓库：
+    SSP_E2E_ADMIN_USERNAME=tyq-admin
+    SSP_E2E_ADMIN_PARTS=口令1,口令2,口令3   （第 1 段是账号密码，其后按 part_index 顺序）
 """
 
 from __future__ import annotations
 
 import http.cookiejar
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8011").rstrip("/")
-ADMIN_PARTS = ["Admin@12345", "Admin#67890", "Admin$24680"]
+ADMIN_USERNAME = os.environ.get("SSP_E2E_ADMIN_USERNAME", "admin")
+ADMIN_PARTS = [
+    part
+    for part in os.environ.get("SSP_E2E_ADMIN_PARTS", "Admin@12345,Admin#67890,Admin$24680").split(",")
+    if part
+]
 
 PASS: list[str] = []
 FAIL: list[str] = []
@@ -86,15 +97,15 @@ def main() -> int:
     parts = int(body.get("parts") or 0)
     check("管理员密码段数接口", status == 200 and parts >= 2, str(body))
 
-    status, body, _ = admin.post("/api/auth/admin/login", {"username": "admin", "passwords": ADMIN_PARTS[:1]})
+    status, body, _ = admin.post("/api/auth/admin/login", {"username": ADMIN_USERNAME, "passwords": ADMIN_PARTS[:1]})
     check("密码段不足被拒(401)", status == 401, f"{status} {body}")
 
     status, body, _ = admin.post(
-        "/api/auth/admin/login", {"username": "admin", "passwords": ADMIN_PARTS, "remember": True}
+        "/api/auth/admin/login", {"username": ADMIN_USERNAME, "passwords": ADMIN_PARTS, "remember": True}
     )
     check("管理员多段登录成功", status == 200 and body.get("is_admin") is True, f"{status} {body}")
 
-    status, body, _ = admin.post("/api/auth/login", {"username": "admin", "password": ADMIN_PARTS[0]})
+    status, body, _ = admin.post("/api/auth/login", {"username": ADMIN_USERNAME, "password": ADMIN_PARTS[0]})
     check("管理员不能用普通入口登录(403)", status == 403, f"{status} {body}")
 
     print("\n[2] 管理员建档")
@@ -415,7 +426,7 @@ def main() -> int:
 
     # 清理测试账号，保持数据库干净
     cleanup = Client()
-    cleanup.post("/api/auth/admin/login", {"username": "admin", "passwords": ADMIN_PARTS, "remember": True})
+    cleanup.post("/api/auth/admin/login", {"username": ADMIN_USERNAME, "passwords": ADMIN_PARTS, "remember": True})
     for account_id in (bob_id, carol_id, carol2):
         if account_id:
             cleanup.call("DELETE", f"/api/admin/users/{account_id}")
