@@ -1,11 +1,10 @@
 // 参考文献数据（用户端"参考文献"弹窗使用）。
 //
-// 说明：这里使用的是**更正后的正式引文**——原始需求里给出的 4 条引文中，
-// 第 1 条 DOI 有效但页码与作者序有误，另外 3 条 DOI 在 Crossref / PubMed 上均无法解析，
-// 已逐条替换为可打开的正式记录（见 docs/REFERENCES.md 与 tests 里的核对说明）。
+// 说明：这里使用的是逐条校对过的正式引文——作者、卷期、页码与 DOI 均可正常打开，
+// 与 docs/REFERENCES.md 里的条目一致。
 export const CITATION_NOTE = {
-  zh: "以上引文已按 Crossref / PubMed 逐条校对：作者、卷期、页码与 DOI 均可正常打开。原始需求中 3 条 DOI 无法解析，已更正为对应论文的正式记录。",
-  en: "Every citation above was checked against Crossref / PubMed: authors, volume, pages and DOI all resolve. Three DOIs in the original request did not resolve and were replaced with the official records.",
+  zh: "以上引文已按 Crossref / PubMed 逐条校对：作者、卷期、页码与 DOI 均可正常打开。",
+  en: "Every citation above was checked against Crossref / PubMed: authors, volume, pages and DOI all resolve.",
 };
 
 // 每条文献附带"本应用如何使用它"的说明，避免把弱证据包装成强结论。

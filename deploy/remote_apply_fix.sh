@@ -291,6 +291,15 @@ grep_absent "timepicker: old picker"   "$WEBROOT/shared/timepicker.js"          
 grep_absent "i18n: old picker keys"    "$WEBROOT/shared/i18n.js"                  'pickerLatestWake'
 grep_absent "schemas: old field gone"  "$APP_DIR/backend/app/schemas.py"          'latest_wake_time'
 
+# This release also deletes the citation-correction record (docs/REFERENCES.md) and the
+# sentence that recited it from the two shipped scripts. docs/ is not part of the webroot,
+# so the check covers what users actually receive: references.js and i18n.js.
+echo "== 4g. the citation-correction record is gone from the shipped scripts =="
+grep_absent "references.js: no record" "$WEBROOT/shared/references.js"             '原始需求'
+grep_absent "i18n.js: no record"       "$WEBROOT/shared/i18n.js"                   '原始需求'
+grep_absent "references.js: no 更正"   "$WEBROOT/shared/references.js"             '更正'
+grep_file   "references.js: note kept" "$WEBROOT/shared/references.js"             'Crossref / PubMed'
+
 echo
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"

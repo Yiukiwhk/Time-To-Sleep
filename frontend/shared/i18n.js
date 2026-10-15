@@ -269,7 +269,7 @@ export const DICTS = {
     "references.pmid": "PMID",
     "references.pmcid": "PMCID",
     "references.doi": "DOI",
-    "references.note": "以上引文已按 Crossref / PubMed 逐条校对：作者、卷期、页码与 DOI 均可正常打开。原始需求中 3 条 DOI 无法解析，已更正为对应论文的正式记录。",
+    "references.note": "以上引文已按 Crossref / PubMed 逐条校对：作者、卷期、页码与 DOI 均可正常打开。",
 
     "settings.title": "个人设置",
     "settings.subtitle": "语言、主题与作息目标",
@@ -749,7 +749,7 @@ export const DICTS = {
     "references.pmid": "PMID",
     "references.pmcid": "PMCID",
     "references.doi": "DOI",
-    "references.note": "Every citation above was checked against Crossref / PubMed: authors, volume, pages and DOI all resolve. Three DOIs in the original request did not resolve and were replaced with the official records.",
+    "references.note": "Every citation above was checked against Crossref / PubMed: authors, volume, pages and DOI all resolve.",
 
     "settings.title": "Settings",
     "settings.subtitle": "Language, theme and target schedule",
