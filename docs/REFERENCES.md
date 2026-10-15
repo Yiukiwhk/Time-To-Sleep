@@ -1,22 +1,10 @@
 # 参考文献与算法依据
 
-本文件记录「作息建议」算法（engine = `adaptive-v2`）所依据的文献、引文更正情况，
+本文件记录「作息建议」算法（engine = `adaptive-v2`）所依据的文献，
 以及每条设计常量与证据之间的对应关系。网站用户端页脚的「参考文献」按钮展示的
 内容来自 [frontend/shared/references.js](../frontend/shared/references.js)，与本文件保持一致。
 
-## 一、引文更正记录
-
-用户最初给出的 4 条引文中有 3 条的 DOI 无法解析（Crossref 404 / 无对应论文），
-已逐条在 Crossref 与 PubMed 上核对并更正。更正后的引文全部可以正常打开。
-
-| 原始引文 | 核对结果 | 更正后 |
-| --- | --- | --- |
-| Weitzman 1981, doi:10.1093/sleep/4.1.1 | DOI 有效，但页码不是 1–11；PubMed 作者序以 Czeisler 开头；非开放获取 | Sleep 1981;4(1):1–21，PMID 7232967（作者序：Czeisler CA, …, Weitzman ED） |
-| doi:10.1093/sleep/28.3.318 | DOI 无法解析（该卷期无此文） | doi:10.1093/sleep/28.1.33，Sleep 2005;28(1):33–44，PMID 15700719，PMC1249488（免费全文） |
-| doi:10.3389/neuro.13.021.2008 | DOI 不存在（Crossref 404），无对应 2008 年论文 | Misiunaite I, Eastman CI, Crowley SJ. Front Neurosci 2020;14:99，doi:10.3389/fnins.2020.00099，PMID 32116532，PMC7029701 |
-| doi:10.1007/s41105-025-00412-9 | DOI 无法解析 | doi:10.1007/s41105-025-00607-7，Sleep Biol Rhythms 2025;23(4):411–417，PMID 40988908，PMC12450850 |
-
-## 二、四篇文献
+## 一、四篇文献
 
 ### 1. Czeisler CA, Richardson GS, Coleman RM, Zimmerman JC, Moore-Ede MC, Dement WC, Weitzman ED.
 *Chronotherapy: resetting the circadian clocks of patients with delayed sleep phase insomnia.*
@@ -56,7 +44,7 @@ Sleep Biol Rhythms 2025;23(4):411–417. doi:10.1007/s41105-025-00607-7 — PMID
 X 分钟吃早餐」这类建议），也**没有任何证据表明进餐时间能移动昼夜相位**（无 DLMO /
 CBTmin 指标）。因此本算法把三餐当作「可执行的节律锚点」，而不是相位杠杆。
 
-## 三、设计常量与证据的对应
+## 二、设计常量与证据的对应
 
 | 常量（backend/app/services/advice.py） | 取值 | 依据 |
 | --- | --- | --- |
@@ -77,7 +65,7 @@ CBTmin 指标）。因此本算法把三餐当作「可执行的节律锚点」�
 | `MEAL_HISTORY_DAYS` | 7 天 | 连续未吃早餐的判定窗口，避免单日波动就触发前移 |
 | `IDEAL_SLEEP / IDEAL_WAKE / IDEAL_DURATION` | 23:00 / 07:00 / 480 分钟 | 未设置自定义目标且历史不足时的系统默认目标 |
 
-## 四、全文存档
+## 三、全文存档
 
 四篇文献的正文/摘要纯文本（调研阶段抓取）位于工作区 `papers/` 目录：
 `eastman2005_sleep.txt`、`misiunaite2020.txt`、`chrononutrition2025.txt`、
