@@ -182,6 +182,40 @@ def test_step_profile_respects_caps_and_front_loads() -> None:
     assert small_ok is True and sum(small) == 20
 
 
+def test_last_step_minutes_reports_the_final_day(client: TestClient) -> None:
+    """提示要报"最后一天挪多少"：这个数必须等于日卡上的 step_minutes（含不可行档）。"""
+    _make_user("laststep", rows=_records_pattern("02:00", "10:00"), target=("22:00", "06:00"))
+    _login(client, "laststep")
+    body = client.post("/api/advice", json={"mode": "slow", "days": 10}).json()
+
+    assert body["steps"]["last_step_minutes"] == body["plan"][-1]["step_minutes"]
+    assert body["steps"]["last_step_minutes"] <= body["steps"]["cap_advance_minutes"]
+
+    # 天数不足：差额全压最后一天，那天必然越过当天的上限
+    tight = client.post("/api/advice", json={"mode": "slow", "days": 3}).json()
+    assert tight["steps"]["feasible"] is False
+    assert tight["steps"]["last_step_minutes"] == tight["plan"][-1]["step_minutes"]
+    assert tight["steps"]["last_step_minutes"] > advice_service._step_caps(
+        tight["steps"]["compact_days"], -1
+    )[-1]
+
+
+def test_infeasible_notice_names_the_last_day_step(client: TestClient) -> None:
+    """口径统一：不可行提示说清"最后一天要挪 N 分钟"，不再暗示"剩下的可以慢慢来"。"""
+    _make_user("tightnotice", rows=_records_pattern("03:00", "11:00"), target=("21:00", "05:00"))
+    _login(client, "tightnotice")
+    body = client.post("/api/advice", json={"mode": "slow", "days": 3}).json()
+
+    assert body["steps"]["feasible"] is False
+    codes = {notice["code"]: notice for notice in body["notices"]}
+    assert "advice.notice.infeasible" in codes
+    notice = codes["advice.notice.infeasible"]
+    assert notice["params"]["step"] == body["steps"]["last_step_minutes"]
+    assert notice["params"]["step"] == body["plan"][-1]["step_minutes"]
+    assert notice["params"]["step"] > 0
+    assert notice["params"]["suggested_days"] > len(body["plan"])
+
+
 def test_delay_cap_is_looser_than_advance(client: TestClient) -> None:
     _make_user("delay", rows=_records_pattern("21:30", "05:30"), target=("01:30", "09:30"))
     _login(client, "delay")

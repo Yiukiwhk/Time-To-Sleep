@@ -365,6 +365,12 @@
 一致，由 `tests/test_advice_engine.py::test_refusal_preview_matches_the_real_checkin` 守着。
 当天已经是“不想吃”状态时前端不再显示这句提示（再点一次没有意义）。
 
+`steps` 里另有一个 **`last_step_minutes`**：最后一天实际要移动的分钟数（与那张日卡上的
+`step_minutes`、卡片右上角的“今天移动 N 分钟”同源）。天数不够时差额全压在最后一天，它会超过
+当天上限（`curve` 的最后一格），`advice.notice.infeasible` / `advice.steps.infeasible` 两句提示
+就用它把代价写清楚（`{step}`），而不是含糊地说“剩下的可以慢慢来”。加这个字段之前存下的旧快照
+没有它，前端会退回从最后一张日卡的 `step_minutes` 取同一个数。
+
 ### `GET /api/advice/plan`
 
 读取**当前计划快照**：今日目标、偏离程度、达标率、连续达标天数、未确认的通知等。返回体与

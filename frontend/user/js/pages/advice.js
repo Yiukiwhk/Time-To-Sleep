@@ -87,7 +87,11 @@ function noticesHtml(data = {}) {
   const noticeNodes = notices
     .map((notice) => {
       if (notice.acked) return "";
-      const params = notice.params || {};
+      const params = { ...(notice.params || {}) };
+      // 加 {step} 之前存下来的快照没有这个参数，就地补上，免得页面出现花括号
+      if (notice.code === "advice.notice.infeasible" && params.step === undefined) {
+        params.step = lastStepMinutes(data);
+      }
       const ack =
         notice.ackable && !notice.acked
           ? `<button class="btn btn-sm" data-ack="${escapeHtml(notice.code)}">${escapeHtml(
@@ -265,7 +269,10 @@ function stepsCardHtml(data) {
       <span class="grow"></span>
       <span class="badge ${steps.feasible === false ? "badge-warn" : "badge-ok"}">${escapeHtml(
         steps.feasible === false
-          ? tp("advice.steps.infeasible", { days: steps.suggested_days })
+          ? tp("advice.steps.infeasible", {
+              days: steps.suggested_days,
+              step: lastStepMinutes(data.plan || {}),
+            })
           : t("advice.steps.feasible")
       )}</span>
     </div>
@@ -331,6 +338,32 @@ function adherenceCardHtml(data) {
 
 /* ------------------------------ 每日方案 ------------------------------ */
 
+/** 不可行时"最后一天要挪多少"：新快照自带 steps.last_step_minutes，
+ *  加固前存下来的老快照没有这个字段，就从那张日卡自己的 step_minutes 取（同一个数）。 */
+function lastStepMinutes(payload = {}) {
+  const value = Number(payload?.steps?.last_step_minutes);
+  if (Number.isFinite(value) && value > 0) return value;
+  const days = payload?.plan || [];
+  return Number(days[days.length - 1]?.step_minutes) || 0;
+}
+
+/** 日卡里的建议默认收成一行，点开就地展开；折叠状态只活在这个 DOM 节点上，重画即回到折叠 */
+function tipsHtml(tips = []) {
+  const items = tips.map((key) => `<li>${escapeHtml(t(key))}</li>`).join("");
+  if (!items) return "";
+  if (tips.length <= 2) return `<ul class="tips">${items}</ul>`;
+  const show = tp("advice.tipsShow", { n: tips.length });
+  return `<div class="tips-fold" data-tips-fold>
+    <button type="button" class="tips-toggle" data-tips-toggle aria-expanded="false">
+      <span class="tips-caret" aria-hidden="true">▸</span>
+      <span data-tips-label data-tips-show="${escapeHtml(show)}" data-tips-hide="${escapeHtml(
+        t("advice.tipsHide")
+      )}">${escapeHtml(show)}</span>
+    </button>
+    <ul class="tips hidden">${items}</ul>
+  </div>`;
+}
+
 function mealsHtml(day) {
   const keys = enabledMeals(day.meals);
   if (!keys.length) return "";
@@ -387,11 +420,7 @@ function dayRowHtml(day) {
     </div>
     ${mealsHtml(day)}
     <div class="timeline-slot mini" data-day-timeline></div>
-    ${
-      (day.tips || []).length
-        ? `<ul class="tips">${day.tips.map((key) => `<li>${escapeHtml(t(key))}</li>`).join("")}</ul>`
-        : ""
-    }
+    ${tipsHtml(day.tips || [])}
   </article>`;
 }
 
@@ -543,6 +572,27 @@ function bindMealCheckin(root, scope = root) {
   });
 }
 
+/** 建议折叠：一个监听器挂在 .day-list 上，重画日卡既不会丢也不会叠加 */
+function bindTips(root) {
+  const list = qs(".day-list", root);
+  if (!list || list.dataset.tipsBound === "1") return;
+  list.dataset.tipsBound = "1";
+  list.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-tips-toggle]");
+    if (!btn || !list.contains(btn)) return;
+    const fold = btn.closest("[data-tips-fold]");
+    const body = fold ? fold.querySelector(".tips") : null;
+    if (!body) return;
+    const open = !body.classList.toggle("hidden");
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    const label = btn.querySelector("[data-tips-label]");
+    if (label) {
+      const text = open ? label.dataset.tipsHide : label.dataset.tipsShow;
+      if (text) label.textContent = text;
+    }
+  });
+}
+
 function bindPlanActions(root) {
   const exportBtn = qs("#advice-export", root);
   if (exportBtn) exportBtn.addEventListener("click", () => exportPlan(view.state.plan));
@@ -569,6 +619,7 @@ function bindPlanActions(root) {
   });
 
   bindMealCheckin(root);
+  bindTips(root);
 }
 
 /* ------------------------------ 表单 ------------------------------ */

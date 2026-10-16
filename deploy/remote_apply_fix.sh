@@ -320,6 +320,18 @@ grep_file   "advice.js: layout follows the fold"   "$WEBROOT/user/js/pages/advic
 grep_file   "app.css: page centred on wide screens" "$WEBROOT/user/css/app.css"     'margin-inline: auto'
 grep_file   "app.css: two day columns on wide screens" "$WEBROOT/user/css/app.css"  'min-width: 1200px'
 
+# The six tips under each day used to be a full list, which is what made the desktop
+# page feel empty. They are folded behind a one-line button now, and the copy that
+# promised the remaining days "can wait" is gone, so check both the new pieces and
+# the absence of the old wording.
+echo "== 4j. the day tips fold away and name the last step =="
+grep_file   "advice.js: tips fold markup"  "$WEBROOT/user/js/pages/advice.js"          'tips-fold'
+grep_file   "advice.js: tips fold wiring"  "$WEBROOT/user/js/pages/advice.js"          'data-tips-toggle'
+grep_file   "app.css: folded tips style"   "$WEBROOT/user/css/app.css"                 '.tips-toggle'
+grep_file   "i18n.js: fold labels"         "$WEBROOT/shared/i18n.js"                  'advice.tipsShow'
+grep_file   "advice.py: last step minutes" "$APP_DIR/backend/app/services/advice.py"  'last_step_minutes'
+grep_absent "i18n.js: vague infeasible copy gone" "$WEBROOT/shared/i18n.js"           '剩下的再慢慢来'
+
 echo
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"

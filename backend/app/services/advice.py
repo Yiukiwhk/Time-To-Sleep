@@ -408,6 +408,8 @@ def _plan_steps(total_sleep: int, total_wake: int, days: int, mode: str) -> dict
             "caps": [STEP_CAP_HARD],
             "daily_average": abs(dominant),
             "compact_days": 1,
+            # 只有一天，全天就是最后一天的步长：提示里要报的数字
+            "last_step_minutes": abs(dominant),
         }
 
     # 偏移很小（日均不足 15 分钟）时集中在更少的天数里走完，其余天保持目标
@@ -438,6 +440,9 @@ def _plan_steps(total_sleep: int, total_wake: int, days: int, mode: str) -> dict
         "caps": _step_caps(shape_days, direction),
         "daily_average": int(round(abs(dominant) / days)),
         "compact_days": compact_days,
+        # 最后一天的步长（入睡那条腿，与日卡上"今天移动 N 分钟"同一个数）：
+        # 天数不够时差额全压在这一天，提示文案要把它写出来，别只说"剩下的再慢慢来"
+        "last_step_minutes": int(daily[-1]) if daily else 0,
     }
 
 
@@ -686,6 +691,7 @@ def _notices(
     daily_average: int,
     feasible: bool,
     suggested: int,
+    last_step: int,
     acked: set[str],
     lunch_shift: int,
     skipped_streak: int,
@@ -726,6 +732,8 @@ def _notices(
             ackable=True,
             days=days,
             suggested_days=suggested,
+            # 天数不够时差额压到最后一天，提示里直接给出那天的步长
+            step=last_step,
         )
     if skipped_streak > 0 and lunch_shift > 0:
         add(
@@ -865,6 +873,7 @@ def build_advice(
         daily_average=steps["daily_average"],
         feasible=steps["feasible"],
         suggested=steps["suggested_days"],
+        last_step=steps["last_step_minutes"],
         acked=acked,
         lunch_shift=shift,
         skipped_streak=streak,
@@ -914,6 +923,8 @@ def build_advice(
             "compact_days": steps["compact_days"],
             "feasible": steps["feasible"],
             "suggested_days": steps["suggested_days"],
+            # 最后一天的步长：不可行时它就是"超出当天上限"的那一天
+            "last_step_minutes": steps["last_step_minutes"],
         },
         "meal_plan": {
             "breakfast_skipped_streak": streak,

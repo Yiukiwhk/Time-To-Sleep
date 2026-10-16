@@ -39,6 +39,13 @@
   `::test_step_profile_respects_caps_and_front_loads`）。
 - 请求参数 `mode` 只有 `fast` / `slow` 两种进度档，用来在“尽快调整”和“温和调整”之间切换，
   不会改变目标点，只改变步子分配。
+- **天数不够时差额全压在最后一天**：`feasible = span <= sum(caps)`，不满足时算法不做“只走一部分、
+  剩下的慢慢来”——因为最后一天必须落在目标上（上面那条硬约束），差额就落在那一天的步长里，
+  于是它会超过当天的上限。返回体把这个数单独给出来（`steps.last_step_minutes`，与最后一张日卡的
+  `step_minutes` 同源），`advice.notice.infeasible` / `advice.steps.infeasible` 两句提示据此把代价
+  写清楚（“最后一天要一次挪 N 分钟，建议改成 X 天”）。单元测试
+  `::test_last_step_minutes_reports_the_final_day`、`::test_infeasible_notice_names_the_last_day_step`
+  守着“提示里的数字 == 日卡上的数字”，防止文案再回到含糊的说法。
 
 ## 3. 前移 / 后移不对称
 

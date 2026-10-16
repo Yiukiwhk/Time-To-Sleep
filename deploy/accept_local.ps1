@@ -207,6 +207,20 @@ if (-not $SkipBrowser) {
                     Check "[$mode] layout probe returned geometry" $false "advice_layout missing from the render summary"
                 }
             }
+            # 日卡里的建议默认折成一行（用户报的「空间利用率太低」）：默认不占位、
+            # 点开就地展开并换成「收起建议」、再点回到折叠，展开时那张卡确实变高。
+            $tf = $json.tips_fold
+            if ($adviceModes -contains $mode) {
+                if ($tf) {
+                    Check "[$mode] day tips start folded" ([int]$tf.folded_by_default -eq 1) ("present=" + $tf.present + " folded=" + $tf.folded_by_default + " label=" + $tf.label)
+                    Check "[$mode] the fold counts the tips" (("$($tf.label)" -match '\d')) ("label=" + $tf.label)
+                    Check "[$mode] tapping the fold shows the tips" (([int]$tf.expanded_after_click -eq 1) -and ([int]$tf.refolded_after_second_click -eq 1)) ("expanded=" + $tf.expanded_after_click + " refolded=" + $tf.refolded_after_second_click + " label_after=" + $tf.label_after_click)
+                    Check "[$mode] unfolding the tips costs vertical space" ([int]$tf.card_h_open -gt [int]$tf.card_h_folded) ("folded_h=" + $tf.card_h_folded + " open_h=" + $tf.card_h_open)
+                    Check "[$mode] the toggle label follows the fold" (("$($tf.label_after_click)" -ne "") -and ("$($tf.label_after_click)" -ne "$($tf.label)")) ("label=" + $tf.label + " label_after=" + $tf.label_after_click)
+                } else {
+                    Check "[$mode] tips fold probe returned geometry" $false "tips_fold missing from the render summary"
+                }
+            }
             # 现实作息窗口（用户需求）：探针作息（00:30 睡 / 08:30 起，目标 23:00/07:00）全程正常，
             # 所以计划里每一行的午餐都要落在 11:00–15:00、晚餐落在 17:00–22:00。
             # 作息越界的用例不在这里断言（那时算法会回落到相对锚点，出窗才是对的）。

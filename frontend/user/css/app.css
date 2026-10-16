@@ -760,6 +760,26 @@
 .tips { margin: 10px 0 0; padding-left: 18px; font-size: 13px; color: var(--text-soft); }
 .tips li { margin: 2px 0; }
 
+/* 日卡里的建议默认收成一行，点开就地展开（收起时列表整体不占位） */
+.tips-fold { margin-top: 10px; }
+.tips-fold .tips { margin-top: 8px; }
+.tips-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.tips-toggle:hover { color: var(--text); border-color: var(--border-strong); }
+.tips-caret { font-size: 11px; transition: transform 0.15s ease; }
+.tips-toggle[aria-expanded="true"] .tips-caret { transform: rotate(90deg); }
+
 .note-list { display: flex; flex-direction: column; gap: 6px; }
 .note {
   padding: 8px 12px;
