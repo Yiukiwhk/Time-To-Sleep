@@ -53,6 +53,31 @@ def sleep_duration_minutes(sleep_minutes: int, wake_minutes: int) -> int:
     return wake - sleep_minutes
 
 
+def derive_wake_date(record_date: str, sleep_time: str, wake_time: str) -> str:
+    """推导起床日历日：起床时刻 <= 入睡时刻就是次日（与 normalize_span 同一条规则）。
+
+    只用于两种情况：老记录（迁移前没有起床日期）与请求里没带起床日期的客户端。
+    """
+    start = parse_iso_date(record_date)
+    if parse_hhmm(wake_time) <= parse_hhmm(sleep_time):
+        start += timedelta(days=1)
+    return start.isoformat()
+
+
+def span_minutes(record_date: str, sleep_time: str, wake_date: str | None, wake_time: str) -> int:
+    """按时长（分钟）算两个"日期 + 时刻"之间的距离，起床日期缺失时按老规则推导。
+
+    返回值可能 <= 0（例如同一天里起床早于入睡）——那是调用方要拒绝的脏数据，
+    这里只做算术，不做判断。
+    """
+    start = parse_iso_date(record_date)
+    if wake_date:
+        day_gap = (parse_iso_date(wake_date) - start).days
+    else:
+        day_gap = 1 if parse_hhmm(wake_time) <= parse_hhmm(sleep_time) else 0
+    return day_gap * 24 * 60 + parse_hhmm(wake_time) - parse_hhmm(sleep_time)
+
+
 def circular_diff_minutes(a: int, b: int) -> int:
     """两个钟点之间的最短有向差（a → b），范围 (-720, 720]。"""
     diff = (b - a) % (24 * 60)

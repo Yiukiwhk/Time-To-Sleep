@@ -127,6 +127,8 @@ class SleepRecordBase(BaseModel):
     meal_lunch: bool = True
     meal_dinner: bool = True
     record_date: str | None = None
+    # 起床日历日。不传时服务端按"起床时刻 <= 入睡时刻 → 次日"推导（见 api/records.py）。
+    wake_date: str | None = None
     note: str | None = Field(default=None, max_length=settings.MAX_NOTE_LEN)
 
     @field_validator("sleep_time", "wake_time")
@@ -137,7 +139,7 @@ class SleepRecordBase(BaseModel):
             raise ValueError("error.invalid_time")
         return result
 
-    @field_validator("record_date")
+    @field_validator("record_date", "wake_date")
     @classmethod
     def _check_date(cls, value: str | None) -> str | None:
         if value is None or value == "":
@@ -171,6 +173,7 @@ class SleepRecordUpdate(BaseModel):
     meal_lunch: bool | None = None
     meal_dinner: bool | None = None
     record_date: str | None = None
+    wake_date: str | None = None
     note: str | None = Field(default=None, max_length=settings.MAX_NOTE_LEN)
 
     @field_validator("sleep_time", "wake_time")
@@ -181,7 +184,7 @@ class SleepRecordUpdate(BaseModel):
             raise ValueError("error.invalid_time")
         return result
 
-    @field_validator("record_date")
+    @field_validator("record_date", "wake_date")
     @classmethod
     def _check_date(cls, value: str | None) -> str | None:
         return SleepRecordBase._check_date(value)
@@ -201,6 +204,7 @@ class SleepRecordOut(ORMModel):
     meal_lunch: bool
     meal_dinner: bool
     record_date: str
+    wake_date: str | None = None
     note: str | None = None
     duration_minutes: int = 0
     created_at: datetime

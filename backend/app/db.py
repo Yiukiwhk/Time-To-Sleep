@@ -131,7 +131,41 @@ def init_db() -> None:
     _migrate_deletion_requests()
     _migrate_users_advice_notice()
     _migrate_meal_checks_refused()
+    _migrate_sleep_records_wake_date()
     _ensure_sqlite_pragmas()
+
+
+def _migrate_sleep_records_wake_date() -> None:
+    """给 sleep_records 表补 wake_date 列，并按老规则回填（"入睡日 + 起床日"改动）。
+
+    老库只有 record_date（入睡日历日），起床算哪天是靠时刻推的。新版本把起床日
+    显式存下来，因此这里：
+      * ALTER TABLE 加列（SQLite 不能给旧库加 NOT NULL 列，所以列可空）；
+      * 用与原逻辑完全相同的规则回填：起床时刻 <= 入睡时刻 → 次日，否则同一天。
+        这样老记录的时长、时间图与统计一个都不变。
+
+    幂等：列已存在且没有空值时直接返回，重启不会重复写。
+    """
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(sleep_records)")).fetchall()
+        if not rows:
+            return
+        if not any(row[1] == "wake_date" for row in rows):
+            conn.execute(text("ALTER TABLE sleep_records ADD COLUMN wake_date VARCHAR(10)"))
+        # create_all() 只建缺失的表，老库已有 sleep_records，索引要自己补。
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_sleep_records_wake_date ON sleep_records (wake_date)")
+        )
+        sleep_minutes = "CAST(substr(sleep_time, 1, 2) AS INTEGER) * 60 + CAST(substr(sleep_time, 4, 2) AS INTEGER)"
+        wake_minutes = "CAST(substr(wake_time, 1, 2) AS INTEGER) * 60 + CAST(substr(wake_time, 4, 2) AS INTEGER)"
+        conn.execute(
+            text(
+                "UPDATE sleep_records "
+                "SET wake_date = CASE WHEN " + wake_minutes + " <= " + sleep_minutes + " "
+                "THEN date(record_date, '+1 day') ELSE date(record_date) END "
+                "WHERE wake_date IS NULL OR wake_date = ''"
+            )
+        )
 
 
 def _migrate_meal_checks_refused() -> None:

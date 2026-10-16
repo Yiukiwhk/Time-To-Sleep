@@ -1,4 +1,4 @@
-﻿# Upload the corrected frontend + backend code + vhost and run
+# Upload the corrected frontend + backend code + vhost and run
 # deploy/remote_apply_fix.sh (which restarts the systemd service and verifies).
 #
 #   .\deploy\apply_fix.ps1
@@ -73,6 +73,7 @@ $backendFiles = @(
     "app\api\auth.py",
     "app\api\records.py",
     "app\config.py",
+    "app\core\timing.py",
     "app\db.py",
     "app\models.py",
     "app\schemas.py",

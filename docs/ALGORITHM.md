@@ -92,6 +92,11 @@
 - 响应里每餐是 `MealPlan`：`enabled`、`best_time`（等于窗口起点，兼容字段 `time`）、
   `window_start`、`window_end`、`anchor`（`wake` / `sleep` / `both`）、`shifted_minutes`（因未吃早餐
   前移的分钟数）、`bar_minutes`（时间图上的条长，仅视觉）、`note`（i18n 键）。
+- **三餐挂在“起床日”那一天**：一条记录跨两个日历日（`record_date` 入睡日、`wake_date` 起床日），
+  `wake_day_of(record)` 是三餐、计划日卡片、打卡回写与达标率的配对键（老记录没有 `wake_date`
+  时按“起床时刻 <= 入睡时刻 → 次日”推导，行为与老版本一致）；入睡日仍是睡眠统计、时间轴
+  与保留策略的标签。所以“今天早餐吃了吗”看的是**今天早上醒来那一条记录**，
+  见 `::test_meals_belong_to_the_wake_day`。
 - **“起床后 X 分钟进食”这类钟点窗口在文献里并不存在**，它们是工程默认值；文献只支持
   “三餐作为节律锚点、不做相位移动”这一条，见 [REFERENCES.md](REFERENCES.md) 的 2025 年综述条目。
 
@@ -150,6 +155,9 @@
 ## 8. 达标率与连续天数口径
 
 - **达标** = 当天实际入睡/起床落在快照给出的容差内（容差与偏离分档同源）。
+- **按起床日配对**：计算达标率时，把每条记录按 `wake_day_of(record)`（起床日历日）对齐到计划里
+  那一天 —— 夜里 23:40 睡、次日 07:20 起，算的是**次日**那天的达成情况；
+  见 `::test_checkin_writes_back_to_the_wake_day_record`。
 - **未记录不计入**：没有记录的那天既不记为达标，也不记为不达标，分母里直接排除
   —— 见 `::test_adherence_ignores_unrecorded_days`。
 - **不中断**：连续达标天数（streak）只被“明确的不达标”打断，缺记录的日子不打断连续。

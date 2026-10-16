@@ -38,6 +38,15 @@ function todayIso() {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
+/** 日期字符串加减天数（本地时区，和 todayIso() 口径一致） */
+function shiftIso(iso, days) {
+  const [year, month, day] = String(iso).split("-").map(Number);
+  const target = new Date(year, month - 1, day);
+  target.setDate(target.getDate() + days);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
+}
+
 /** 默认只看最近 7 天（含今天）；导出给自检脚本复算，避免两处写死 */
 export function defaultRange(days = 7) {
   const end = new Date();
@@ -125,7 +134,8 @@ function renderShell(root) {
           <thead>
             <tr>
               <th style="width:36px"><input type="checkbox" id="select-all" /></th>
-              <th>${escapeHtml(t("records.date"))}</th>
+              <th>${escapeHtml(t("records.sleepDate"))}</th>
+              <th>${escapeHtml(t("records.wakeDate"))}</th>
               <th>${escapeHtml(t("records.sleepTime"))}</th>
               <th>${escapeHtml(t("records.wakeTime"))}</th>
               <th>${escapeHtml(t("records.duration"))}</th>
@@ -158,6 +168,7 @@ function renderRows(root) {
       <tr>
         <td><input type="checkbox" data-pick="${record.id}" ${view.selected.has(record.id) ? "checked" : ""} /></td>
         <td class="mono">${escapeHtml(record.record_date)}</td>
+        <td class="mono">${escapeHtml(record.wake_date || "—")}</td>
         <td class="mono">${escapeHtml(record.sleep_time)}</td>
         <td class="mono">${escapeHtml(record.wake_time)}</td>
         <td class="mono record-duration">${escapeHtml(fmtDuration(record.duration_minutes))}</td>
@@ -176,7 +187,7 @@ function renderRows(root) {
       (record) => `
       <div class="record-card">
         <div class="rc-head">
-          <span class="mono">${escapeHtml(record.record_date)}</span>
+          <span class="mono">${escapeHtml(record.record_date)}${record.wake_date ? ` → ${escapeHtml(record.wake_date)}` : ""}</span>
           ${mealCell(record)}
         </div>
         <div class="rc-times">
@@ -290,7 +301,10 @@ async function loadMeta(root) {
 /* 弹窗关闭后 DOM 会被移除，因此在 onMount 时捕获取值闭包 collector，ok 之后再调用 */
 async function openRecordForm(root, record = null) {
   const isEdit = Boolean(record);
-  const defaultDate = record?.record_date || view.meta?.today || todayIso();
+  const maxDate = view.meta?.today || todayIso();
+  // 入睡日期默认昨天（记录的大多是"昨晚这一觉"）；起床日期默认入睡日期 + 1，可改。
+  const sleepDate = record?.record_date || shiftIso(maxDate, -1);
+  const wakeDate = record?.wake_date || shiftIso(sleepDate, 1);
   let collector = null;
 
   const ok = await openModal({
@@ -299,10 +313,18 @@ async function openRecordForm(root, record = null) {
     okText: isEdit ? t("records.submitUpdate") : t("records.submitCreate"),
     bodyHtml: `
       <div class="stack" style="gap:16px">
-        <div class="field">
-          <label>${escapeHtml(t("records.date"))}</label>
-          <input class="input" type="date" id="f-date" value="${escapeHtml(defaultDate)}"
-                 max="${escapeHtml(view.meta?.today || todayIso())}" style="max-width:190px" />
+        <div class="form-row">
+          <div class="field">
+            <label>${escapeHtml(t("records.sleepDate"))}</label>
+            <input class="input" type="date" id="f-date" value="${escapeHtml(sleepDate)}"
+                   max="${escapeHtml(maxDate)}" style="max-width:190px" />
+          </div>
+          <div class="field">
+            <label>${escapeHtml(t("records.wakeDate"))}</label>
+            <input class="input" type="date" id="f-wake-date" value="${escapeHtml(wakeDate)}"
+                   max="${escapeHtml(shiftIso(sleepDate, 1))}" style="max-width:190px" />
+            <span class="tiny muted">${escapeHtml(t("records.wakeDateHint"))}</span>
+          </div>
         </div>
         <div class="form-row">
           <div class="field">
@@ -316,6 +338,7 @@ async function openRecordForm(root, record = null) {
         </div>
         <div class="field">
           <label>${escapeHtml(t("records.meals"))}</label>
+          <div class="tiny muted" style="margin-bottom:6px">${escapeHtml(t("records.mealsDay"))}</div>
           <div class="row-wrap">
             <label class="checkbox"><input type="checkbox" id="f-breakfast" /><span>${escapeHtml(t("records.meal.breakfast"))}</span></label>
             <label class="checkbox"><input type="checkbox" id="f-lunch" /><span>${escapeHtml(t("records.meal.lunch"))}</span></label>
@@ -339,8 +362,25 @@ async function openRecordForm(root, record = null) {
       lunch.checked = record ? Boolean(record.meal_lunch) : true;
       dinner.checked = record ? Boolean(record.meal_dinner) : true;
 
+      // 起床日期跟着入睡日期走，直到用户自己改过它（改过就尊重他填的，例如午睡）
+      const sleepInput = qs("#f-date", modal);
+      const wakeInput = qs("#f-wake-date", modal);
+      let wakeTouched = Boolean(
+        record?.wake_date && record.wake_date !== shiftIso(record.record_date, 1)
+      );
+      const syncWake = () => {
+        wakeInput.max = shiftIso(sleepInput.value, 1);
+        if (!wakeTouched) wakeInput.value = shiftIso(sleepInput.value, 1);
+      };
+      sleepInput.addEventListener("change", syncWake);
+      sleepInput.addEventListener("input", syncWake);
+      wakeInput.addEventListener("input", () => {
+        wakeTouched = true;
+      });
+
       collector = () => ({
-        record_date: qs("#f-date", modal).value,
+        record_date: sleepInput.value,
+        wake_date: wakeInput.value,
         sleep_time: sleepPicker.value,
         wake_time: wakePicker.value,
         meal_breakfast: breakfast.checked,
@@ -357,8 +397,22 @@ async function openRecordForm(root, record = null) {
     toastErr(t("error.invalid_time"));
     return;
   }
-  if (!payload.record_date) {
+  if (!payload.record_date || !payload.wake_date) {
     toastErr(t("error.invalid_date"));
+    return;
+  }
+  const dayGap =
+    payload.wake_date === payload.record_date
+      ? 0
+      : payload.wake_date === shiftIso(payload.record_date, 1)
+        ? 1
+        : -1;
+  if (dayGap < 0) {
+    toastErr(t("error.invalid_date_range"));
+    return;
+  }
+  if (dayGap === 0 && payload.wake_time <= payload.sleep_time) {
+    toastErr(t("error.invalid_time_range"));
     return;
   }
   if (cooldownRemaining() > 0) {

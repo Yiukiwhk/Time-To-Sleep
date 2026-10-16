@@ -187,10 +187,16 @@
 
 ## 睡眠记录 `/api/records`
 
-字段约定：`sleep_time` / `wake_time` 为 `HH:MM`（24 小时制），`record_date` 为 `YYYY-MM-DD`
-（省略则取今天），三餐布尔字段默认 `true`，`note` 最长 200 字。允许补录最近 **3650 天**、
+字段约定：`sleep_time` / `wake_time` 为 `HH:MM`（24 小时制），`record_date` 为**入睡日历日**、
+`wake_date` 为**起床日历日**（都是 `YYYY-MM-DD`，省略则入睡日取今天、起床日按"起床时刻 <= 入睡时刻
+→ 次日"推导），三餐布尔字段默认 `true`，`note` 最长 200 字。允许补录最近 **3650 天**、
 允许最多 **1 天**未来日期（用于跨零点夜班场景），越界返回 `error.date_too_old` /
-`error.date_in_future`。
+`error.date_in_future`；起床日只能是入睡日当天或次日（否则 `error.invalid_date_range`），
+起床时刻必须晚于入睡时刻（否则 `error.invalid_time_range`）。
+
+> 一条记录跨两个日历日。它描述的是**起床后那一天**：记录页勾的三餐、计划日卡片、
+> 打卡与达标率都以起床日为准（老记录没有 `wake_date` 时按同样的规则推导，行为不变）；
+> 入睡日仍是睡眠统计、时间轴与保留策略的标签。
 
 ### `POST /api/records`
 
@@ -199,6 +205,7 @@
   "sleep_time": "23:40",
   "wake_time": "07:20",
   "record_date": "2026-02-19",
+  "wake_date": "2026-02-20",
   "meal_breakfast": true,
   "meal_lunch": true,
   "meal_dinner": false,
@@ -216,6 +223,7 @@
   "meal_lunch": true,
   "meal_dinner": false,
   "record_date": "2026-02-19",
+  "wake_date": "2026-02-20",
   "note": "睡前喝了咖啡",
   "duration_minutes": 460,
   "created_at": "2026-02-19T23:41:02",
@@ -224,7 +232,8 @@
 }
 ```
 
-`duration_minutes` 由服务端按跨零点规则计算（服务端计算，客户端不用传）。
+`duration_minutes` 由服务端按两个日期与两个时刻计算（`(wake_date - record_date) * 1440 + wake - sleep`），
+客户端不用传；不传 `wake_date` 时服务端按跨零点规则推导，与老版本结果一致。
 
 > 记录里**没有**"最晚起床 / 最早入睡"两个字段了：这两个约束已按用户要求删除，
 > 请求里带上它们不会报错，但服务端不会保存、也不会再据此限制计划。
@@ -253,6 +262,7 @@
       "meal_lunch": true,
       "meal_dinner": false,
       "record_date": "2026-02-19",
+      "wake_date": "2026-02-20",
       "note": null,
       "duration_minutes": 460,
       "created_at": "2026-02-19T23:41:02",

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from ..core.timing import circular_diff_minutes, parse_hhmm
 from ..db import run_with_retry, write_session
@@ -108,6 +108,10 @@ def checkin(
 ) -> None:
     """建议页"已吃 / 跳过 / 不想吃"一键确认：写入 meal_checks，并同步当天睡眠记录。
 
+    "当天"指卡片上的那一天，也就是**起床日**：昨天 23:30 睡、今天 07:30 起的记录
+    挂在今天的卡片上，所以回写时按 wake_date 找记录（老记录没有 wake_date 时退回
+    record_date）。
+
     refused 只在"早餐不想吃"时传 True：它必然意味着没吃（eaten=False），并且会让
     今天的午餐与晚餐都提前（见 services/advice.py 的 `_meal_times`）。点"已吃"或
     "跳过"会把 refused 清掉，避免旧状态残留。
@@ -142,10 +146,19 @@ def checkin(
                 row.updated_at = utcnow()
             record = (
                 session.execute(
-                    select(SleepRecord).where(
+                    select(SleepRecord)
+                    .where(
                         SleepRecord.user_id == user_id,
-                        SleepRecord.record_date == check_date,
+                        or_(
+                            SleepRecord.wake_date == check_date,
+                            # 老记录没有起床日：退回按入睡日配对（与 wake_day_of 的口径一致）
+                            and_(
+                                SleepRecord.wake_date.is_(None),
+                                SleepRecord.record_date == check_date,
+                            ),
+                        ),
                     )
+                    .order_by(SleepRecord.id.desc())
                 )
                 .scalars()
                 .first()
@@ -166,25 +179,33 @@ def _planned_days(payload: dict) -> dict[str, dict]:
 
 
 def deviation(payload: dict, records: list[SleepRecord], today: date) -> dict:
-    """最近一次记录与计划的偏离程度：≤30 分钟不动，30~90 静默重算，>90 询问。"""
+    """最近一次记录与计划的偏离程度：≤30 分钟不动，30~90 静默重算，>90 询问。
+
+    记录挂在**起床日**上（见 advice_service.wake_day_of）：昨天 23:30 睡、今天 07:30
+    起的记录对应今天那张卡片，所以按起床日与计划里的日期配对。
+    """
     planned = _planned_days(payload)
     today_iso = today.isoformat()
     latest = None
-    for record in sorted(records, key=lambda r: r.record_date, reverse=True):
-        if record.record_date in planned and record.record_date <= today_iso:
+    for record in sorted(records, key=advice_service.wake_day_of, reverse=True):
+        day_of_record = advice_service.wake_day_of(record)
+        if day_of_record in planned and day_of_record <= today_iso:
             latest = record
             break
 
     planned_days = [day for day in (payload.get("plan") or []) if day["date"] <= today_iso]
     recorded = {
-        record.record_date
+        advice_service.wake_day_of(record)
         for record in records
-        if record.record_date in planned and record.record_date <= today_iso
+        if advice_service.wake_day_of(record) in planned
+        and advice_service.wake_day_of(record) <= today_iso
     }
     off_days = 0
     for the_date in sorted(recorded):
         day = planned[the_date]
-        record = next(item for item in records if item.record_date == the_date)
+        record = next(
+            item for item in records if advice_service.wake_day_of(item) == the_date
+        )
         try:
             diff = max(
                 abs(circular_diff_minutes(parse_hhmm(day["sleep_time"]), parse_hhmm(record.sleep_time))),
@@ -211,7 +232,7 @@ def deviation(payload: dict, records: list[SleepRecord], today: date) -> dict:
     if latest is None:
         return result
 
-    day = planned[latest.record_date]
+    day = planned[advice_service.wake_day_of(latest)]
     diff_sleep = circular_diff_minutes(parse_hhmm(day["sleep_time"]), parse_hhmm(latest.sleep_time))
     diff_wake = circular_diff_minutes(parse_hhmm(day["wake_time"]), parse_hhmm(latest.wake_time))
     magnitude = max(abs(diff_sleep), abs(diff_wake))
@@ -220,12 +241,12 @@ def deviation(payload: dict, records: list[SleepRecord], today: date) -> dict:
             "minutes": int(magnitude),
             "direction": "later" if (diff_sleep >= 0) else "earlier",
             "planned": {
-                "date": latest.record_date,
+                "date": advice_service.wake_day_of(latest),
                 "sleep_time": day["sleep_time"],
                 "wake_time": day["wake_time"],
             },
             "actual": {
-                "date": latest.record_date,
+                "date": advice_service.wake_day_of(latest),
                 "sleep_time": latest.sleep_time,
                 "wake_time": latest.wake_time,
             },
@@ -261,9 +282,12 @@ def deviation(payload: dict, records: list[SleepRecord], today: date) -> dict:
 
 
 def adherence(payload: dict, records: list[SleepRecord], today: date) -> dict:
-    """计划与实际对照：只看有记录的日子，未记录不算失败，也不中断连续天数。"""
+    """计划与实际对照：只看有记录的日子，未记录不算失败，也不中断连续天数。
+
+    与 `deviation` 一样按**起床日**配对（见 advice_service.wake_day_of）。
+    """
     today_iso = today.isoformat()
-    by_date = {record.record_date: record for record in records}
+    by_date = {advice_service.wake_day_of(record): record for record in records}
     planned = [day for day in (payload.get("plan") or []) if day["date"] <= today_iso]
 
     hit_dates: list[str] = []

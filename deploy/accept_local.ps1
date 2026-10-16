@@ -294,6 +294,15 @@ if (-not $SkipBrowser) {
                 $wantEnd = (Get-Date).ToString("yyyy-MM-dd")
                 Check "records default range is the last 7 days" (($json.record_form.filters.start -eq $wantStart) -and ($json.record_form.filters.end -eq $wantEnd)) ("got " + $json.record_form.filters.start + " .. " + $json.record_form.filters.end + " want " + $wantStart + " .. " + $wantEnd)
                 Check "record list has rows" ([int]$json.record_form.rows -ge 1) ("rows=" + $json.record_form.rows)
+                # 两个日期：入睡日期默认昨天、起床日期默认 +1 并跟着入睡日期走
+                $rform = $json.record_form
+                Check "record form asks for a bedtime date and a wake date" (($rform.sleep_date -ne "") -and ($rform.wake_date -ne "")) ("sleep=" + $rform.sleep_date + " wake=" + $rform.wake_date)
+                Check "bedtime date defaults to yesterday" ([int]$rform.sleep_is_yesterday -eq 1) ("sleep_date=" + $rform.sleep_date)
+                Check "wake date defaults to the day after the bedtime date" ([int]$rform.wake_is_next_day -eq 1) ("sleep=" + $rform.sleep_date + " wake=" + $rform.wake_date)
+                Check "changing the bedtime date moves the wake date with it" (($rform.wake_after_shift -ne "") -and ($rform.wake_after_shift -ne $rform.wake_date) -and ($rform.wake_restored -eq $rform.wake_date)) ("shifted=" + $rform.wake_after_shift + " restored=" + $rform.wake_restored)
+                Check "the form posts the wake date" (@($rform.submit_calls | Where-Object { $_.body -match 'wake_date' }).Count -ge 1) ("bodies=" + (@($rform.submit_calls) | ConvertTo-Json -Compress))
+                Check "the records table shows both dates" ([int]$rform.wake_cells -ge 1) ("wake_cells=" + $rform.wake_cells)
+                Check "the form says the meals belong to the wake day" ([int]$rform.meals_day_hint -eq 1) "no wake-day hint in the modal"
             }
             if ($mode -eq "plan") {
                 Check "daily plan rows rendered" ([int]$json.plan_rows -ge 2) ("rows=" + $json.plan_rows)

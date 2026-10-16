@@ -559,8 +559,24 @@ def test_auto_recompute_only_once_per_day(client: TestClient) -> None:
 # --------------------------------------------------------------------------- #
 # 统计（用轻量假对象，直接测纯函数）
 # --------------------------------------------------------------------------- #
-def _fake(record_date: str, sleep: str, wake: str) -> SimpleNamespace:
-    return SimpleNamespace(record_date=record_date, sleep_time=sleep, wake_time=wake)
+def _fake(record_date: str, sleep: str, wake: str, wake_date: str | None = None) -> SimpleNamespace:
+    """轻量假记录：wake_date 默认 None，正好走"老记录按时刻推导起床日"的回退路径。"""
+    return SimpleNamespace(
+        record_date=record_date, sleep_time=sleep, wake_time=wake, wake_date=wake_date
+    )
+
+
+def _night(card_date: str, sleep: str, wake: str) -> SimpleNamespace:
+    """一条"前一晚睡、card_date 早上起"的记录：挂在 card_date 这张卡片上。
+
+    新约定的表单就是这样填的（入睡日期 = 昨天，起床日期 = 今天 = 卡片日）。
+    """
+    return _fake(
+        (date.fromisoformat(card_date) - timedelta(days=1)).isoformat(),
+        sleep,
+        wake,
+        wake_date=card_date,
+    )
 
 
 def _payload() -> dict:
@@ -581,8 +597,8 @@ def test_adherence_ignores_unrecorded_days() -> None:
     payload = _payload()
     first, second, third = payload["plan"]
     records = [
-        _fake(first["date"], "23:10", "07:05"),      # 命中
-        _fake(third["date"], "23:20", "07:10"),      # 命中（中间那天没记录 → 不中断）
+        _night(first["date"], "23:10", "07:05"),      # 命中
+        _night(third["date"], "23:20", "07:10"),      # 命中（中间那天没记录 → 不中断）
     ]
     stats = plan_service.adherence(payload, records, TODAY)
     assert stats["days_elapsed"] == 3
@@ -591,7 +607,7 @@ def test_adherence_ignores_unrecorded_days() -> None:
     assert stats["hit_rate"] == 1.0
     assert stats["current_streak"] == 2
     assert stats["remaining_days"] == 0
-    assert second["date"] not in {record.record_date for record in records}
+    assert second["date"] not in {advice_service.wake_day_of(record) for record in records}
 
 
 def test_deviation_levels() -> None:
@@ -600,15 +616,15 @@ def test_deviation_levels() -> None:
 
     assert plan_service.deviation(payload, [], TODAY)["level"] == "none"
 
-    ok = plan_service.deviation(payload, [_fake(third["date"], "23:25", "07:20")], TODAY)
+    ok = plan_service.deviation(payload, [_night(third["date"], "23:25", "07:20")], TODAY)
     assert ok["level"] == "none" and ok["minutes"] == 25
 
-    auto = plan_service.deviation(payload, [_fake(third["date"], "00:00", "08:00")], TODAY)
+    auto = plan_service.deviation(payload, [_night(third["date"], "00:00", "08:00")], TODAY)
     assert auto["level"] == "auto" and auto["minutes"] == 60
     assert auto["direction"] == "later"
     assert auto["options"] == []
 
-    ask = plan_service.deviation(payload, [_fake(third["date"], "01:00", "09:00")], TODAY)
+    ask = plan_service.deviation(payload, [_night(third["date"], "01:00", "09:00")], TODAY)
     assert ask["level"] == "ask" and ask["minutes"] == 120
     assert [option["strategy"] for option in ask["options"]] == [
         "postpone",
@@ -683,3 +699,133 @@ def test_timeline_wraps_around_midnight() -> None:
     assert advice_service.day_for([earlier, day], TODAY)["date"] == day["date"]
     assert advice_service.day_for([earlier], TODAY)["date"] == earlier["date"]
     assert advice_service.day_for([], TODAY) is None
+
+
+# --------------------------------------------------------------------------- #
+# 两个日期：入睡日 + 起床日
+# --------------------------------------------------------------------------- #
+def test_wake_date_defaults_to_the_next_day(client: TestClient) -> None:
+    """只给入睡日期时，起床日按"起床时刻 <= 入睡时刻 → 次日"推导（跨夜 8 小时）。"""
+    username = "wakedefault"
+    _make_user(username, target=("23:00", "07:00"))
+    _login(client, username)
+    yesterday = (TODAY - timedelta(days=1)).isoformat()
+
+    body = client.post(
+        "/api/records",
+        json={"record_date": yesterday, "sleep_time": "23:30", "wake_time": "07:30"},
+    ).json()
+    assert body["record_date"] == yesterday
+    assert body["wake_date"] == TODAY.isoformat()
+    assert body["duration_minutes"] == 8 * 60
+
+
+def test_wake_date_can_be_the_same_day(client: TestClient) -> None:
+    """午睡/凌晨睡早上起：起床日可以就是入睡日，时长按当天算。"""
+    username = "wakesame"
+    _make_user(username, target=("23:00", "07:00"))
+    _login(client, username)
+    day = (TODAY - timedelta(days=1)).isoformat()
+
+    body = client.post(
+        "/api/records",
+        json={
+            "record_date": day,
+            "wake_date": day,
+            "sleep_time": "01:30",
+            "wake_time": "08:30",
+        },
+    ).json()
+    assert body["wake_date"] == day
+    assert body["duration_minutes"] == 7 * 60
+
+
+def test_wake_date_range_and_order_are_validated(client: TestClient) -> None:
+    """起床日最远只能是次日；起床时刻必须晚于入睡时刻（同一天时尤其要挡住）。"""
+    username = "wakebad"
+    _make_user(username, target=("23:00", "07:00"))
+    _login(client, username)
+    yesterday = (TODAY - timedelta(days=1)).isoformat()
+    tomorrow = (TODAY + timedelta(days=1)).isoformat()
+
+    far = client.post(
+        "/api/records",
+        json={
+            "record_date": yesterday,
+            "wake_date": tomorrow,
+            "sleep_time": "23:30",
+            "wake_time": "07:30",
+        },
+    )
+    assert far.status_code == 400
+    assert far.json()["code"] == "error.invalid_date_range"
+
+    same_times = client.post(
+        "/api/records",
+        json={
+            "record_date": yesterday,
+            "wake_date": yesterday,
+            "sleep_time": "07:30",
+            "wake_time": "07:30",
+        },
+    )
+    assert same_times.status_code == 400
+    assert same_times.json()["code"] == "error.invalid_time_range"
+
+
+def test_meals_belong_to_the_wake_day(client: TestClient) -> None:
+    """昨晚睡、今早起的记录：它的三餐算**今天**的（不是入睡日那天的）。"""
+    username = "wakeday"
+    _make_user(username, target=("23:00", "07:00"))
+    _login(client, username)
+    yesterday = (TODAY - timedelta(days=1)).isoformat()
+    created = client.post(
+        "/api/records",
+        json={
+            "record_date": yesterday,
+            "wake_date": TODAY.isoformat(),
+            "sleep_time": "23:30",
+            "wake_time": "07:30",
+            "meal_breakfast": False,
+            "meal_lunch": True,
+            "meal_dinner": True,
+        },
+    ).json()
+    assert created["wake_date"] == TODAY.isoformat()
+
+    recent = client.get("/api/advice/plan").json()["meal_plan"]["recent"]
+    today_row = [row for row in recent if row["date"] == TODAY.isoformat()]
+    assert today_row, "今天这一格要能看到昨晚那条记录"
+    assert today_row[0]["meals"]["breakfast"]["state"] == "skipped"
+    # 入睡日那一格不能跟着一起"没吃早餐"
+    yesterday_row = [row for row in recent if row["date"] == yesterday]
+    assert yesterday_row == [] or yesterday_row[0]["meals"]["breakfast"]["state"] != "skipped"
+
+
+def test_checkin_writes_back_to_the_wake_day_record(client: TestClient) -> None:
+    """打卡回写要按起床日找记录：昨晚睡今天起的记录，今天打卡能写进去。"""
+    username = "wakeback"
+    _make_user(username, target=("23:00", "07:00"))
+    _login(client, username)
+    yesterday = (TODAY - timedelta(days=1)).isoformat()
+    record_id = client.post(
+        "/api/records",
+        json={
+            "record_date": yesterday,
+            "wake_date": TODAY.isoformat(),
+            "sleep_time": "23:30",
+            "wake_time": "07:30",
+        },
+    ).json()["id"]
+
+    body = client.post(
+        "/api/advice/checkin",
+        json={"meal": "breakfast", "eaten": False, "refused": True},
+    ).json()
+    assert body["refused"] is True
+
+    row = next(
+        item for item in client.get("/api/records").json()["items"] if item["id"] == record_id
+    )
+    assert row["meal_breakfast"] is False
+    assert row["wake_date"] == TODAY.isoformat()

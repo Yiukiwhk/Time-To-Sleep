@@ -199,6 +199,12 @@ export async function renderUserDetailPage(view, { ctx, navigate, api, isStale }
           cell: (row) => `<span class="mono">${escapeHtml(fmtDay(row.record_date))}</span>`,
         },
         {
+          key: "wake_date",
+          label: t("field.wake_date"),
+          className: "narrow",
+          cell: (row) => `<span class="mono">${escapeHtml(fmtDay(row.wake_date))}</span>`,
+        },
+        {
           key: "sleep_time",
           label: t("field.sleep_time"),
           className: "narrow",

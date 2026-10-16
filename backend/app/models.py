@@ -105,7 +105,13 @@ class AdminCredential(Base, TimestampMixin):
 
 
 class SleepRecord(Base, TimestampMixin):
-    """睡眠记录。时间字段统一存 "HH:MM"，record_date 为该次睡眠的入睡日历日。"""
+    """睡眠记录。时间字段统一存 "HH:MM"，日期字段存 "YYYY-MM-DD"。
+
+    record_date 是入睡日历日，wake_date 是起床日历日（表单默认 = 入睡日 + 1）。
+    老库里的 wake_date 是迁移时按"起床时刻 <= 入睡时刻 → 次日"补出来的；
+    读取时若该列为空（例如迁移前就存在的行、或直接写库的测试数据）仍按同一规则推导，
+    见 core/timing.py 的 derive_wake_date()。
+    """
 
     __tablename__ = "sleep_records"
 
@@ -121,6 +127,8 @@ class SleepRecord(Base, TimestampMixin):
     meal_lunch: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     meal_dinner: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     record_date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)  # YYYY-MM-DD
+    # 起床日历日。老库补列时没有 NOT NULL 默认值，所以这里可空；新记录一律写入。
+    wake_date: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)  # YYYY-MM-DD
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="records")

@@ -57,7 +57,7 @@ fi
 # Python modules shipped by a release: the adaptive-v2 advice engine, the auth
 # guard (login-failure warning), the records cooldown and the config defaults.
 # Must stay in sync with $backendFiles in deploy/apply_fix.ps1.
-BACKEND_FILES="app/api/admin.py app/api/advice.py app/api/auth.py app/api/records.py app/config.py app/db.py app/models.py app/schemas.py app/services/advice.py app/services/advice_plan.py app/services/auth_service.py"
+BACKEND_FILES="app/api/admin.py app/api/advice.py app/api/auth.py app/api/records.py app/config.py app/core/timing.py app/db.py app/models.py app/schemas.py app/services/advice.py app/services/advice_plan.py app/services/auth_service.py"
 
 echo "== 2b. backend code =="
 BACKEND_BACKUP=/tmp/sleep-backend-backup
@@ -236,6 +236,16 @@ case "$schema" in
     *'"meal_checks_has_refused": true'*) echo "  ok   meal_checks.refused present" ;;
     *) echo "  FAIL meal_checks.refused missing"; fail=$((fail + 1)) ;;
 esac
+# "two dates": sleep_records gains an explicit wake date, and the migration back-fills
+# old rows so nothing is left without one.
+case "$schema" in
+    *'"sleep_records_has_wake_date": true'*) echo "  ok   sleep_records.wake_date present" ;;
+    *) echo "  FAIL sleep_records.wake_date missing"; fail=$((fail + 1)) ;;
+esac
+case "$schema" in
+    *'"sleep_records_without_wake_date": 0'*) echo "  ok   every record has a wake date" ;;
+    *) echo "  FAIL records without a wake date"; fail=$((fail + 1)) ;;
+esac
 
 # The deployed code itself must carry this release: a 10 second write cooldown and
 # the "N attempts left" warning on a failed login.  Checking the shipped files (not
@@ -331,6 +341,21 @@ grep_file   "app.css: folded tips style"   "$WEBROOT/user/css/app.css"          
 grep_file   "i18n.js: fold labels"         "$WEBROOT/shared/i18n.js"                  'advice.tipsShow'
 grep_file   "advice.py: last step minutes" "$APP_DIR/backend/app/services/advice.py"  'last_step_minutes'
 grep_absent "i18n.js: vague infeasible copy gone" "$WEBROOT/shared/i18n.js"           '剩下的再慢慢来'
+
+# 4k. "two dates": a record carries a bedtime date and a wake date; meals, check-ins and
+# the adherence stats all pair on the wake day, while the bedtime day still labels sleep
+# statistics.  grep_file proves the new code shipped; grep_absent proves the single-date
+# form is gone from the published records page.
+echo "== 4k. a record carries a bedtime date and a wake date =="
+grep_file "db: wake date migration"        "$APP_DIR/backend/app/db.py"                   'wake_date'
+grep_file "timing: explicit span"          "$APP_DIR/backend/app/core/timing.py"          'def span_minutes'
+grep_file "records api: wake date check"   "$APP_DIR/backend/app/api/records.py"          '_check_wake_date'
+grep_file "advice: wake day pairing"       "$APP_DIR/backend/app/services/advice.py"      'def wake_day_of'
+grep_file "advice_plan: wake day checkin"  "$APP_DIR/backend/app/services/advice_plan.py" 'wake_day_of'
+grep_file "records.js: wake date field"    "$WEBROOT/user/js/pages/records.js"            'f-wake-date'
+grep_file "i18n.js: wake date label"       "$WEBROOT/shared/i18n.js"                      'records.wakeDate'
+grep_file "i18n.js: wake date errors"      "$WEBROOT/shared/i18n.js"                      'error.invalid_date_range'
+grep_absent "records.js: single date form gone" "$WEBROOT/user/js/pages/records.js"       'records.date'
 
 echo
 if [ "$fail" -eq 0 ]; then

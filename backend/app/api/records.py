@@ -14,7 +14,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..core.timing import parse_hhmm, parse_iso_date, sleep_duration_minutes
+from ..core.timing import derive_wake_date, parse_hhmm, parse_iso_date, span_minutes
 from ..db import get_db, run_with_retry, write_session
 from ..deps import RequestContext, client_meta, current_user
 from ..errors import ApiError
@@ -87,15 +87,35 @@ def _check_record_date(value: str | None) -> str:
     return parsed.isoformat()
 
 
+def _check_wake_date(
+    record_date: str, wake_date: str | None, sleep_time: str, wake_time: str
+) -> str:
+    """起床日历日：缺省时按老规则推导；显式给出时校验范围。
+
+    规则与前端一致：起床日只能是入睡日当天（午睡、凌晨睡早上起）或次日（正常跨夜），
+    再远就说明填错了。时长必须为正，否则同一天的"起床早于入睡"会被静默存成负数。
+    """
+    if not wake_date:
+        text = derive_wake_date(record_date, sleep_time, wake_time)
+    else:
+        text = _check_record_date(wake_date)
+        gap = (parse_iso_date(text) - parse_iso_date(record_date)).days
+        if gap < 0 or gap > 1:
+            raise ApiError(400, "error.invalid_date_range", code="error.invalid_date_range")
+    if span_minutes(record_date, sleep_time, text, wake_time) <= 0:
+        raise ApiError(400, "error.invalid_time_range", code="error.invalid_time_range")
+    return text
+
+
 def serialize_record(record: SleepRecord, *, username: str | None = None) -> SleepRecordOut:
     try:
-        duration = sleep_duration_minutes(
-            parse_hhmm(record.sleep_time), parse_hhmm(record.wake_time)
+        duration = span_minutes(
+            record.record_date, record.sleep_time, record.wake_date, record.wake_time
         )
     except Exception:  # noqa: BLE001 - 历史脏数据不应导致 500
         duration = 0
     payload = SleepRecordOut.model_validate(record)
-    payload.duration_minutes = duration
+    payload.duration_minutes = max(0, duration)
     payload.username = username
     return payload
 
@@ -187,6 +207,9 @@ def create_my_record(
 ) -> SleepRecordOut:
     _ensure_writable(user)
     record_date = _check_record_date(payload.record_date)
+    wake_date = _check_wake_date(
+        record_date, payload.wake_date, payload.sleep_time, payload.wake_time
+    )
 
     def _write() -> int:
         with write_session() as session:
@@ -198,6 +221,7 @@ def create_my_record(
                 meal_lunch=payload.meal_lunch,
                 meal_dinner=payload.meal_dinner,
                 record_date=record_date,
+                wake_date=wake_date,
                 note=payload.note,
             )
             session.add(record)
@@ -208,7 +232,7 @@ def create_my_record(
     _touch_write(user.id)
     logkit.log_event(
         "record_create",
-        f"user {user.username} created record #{record_id} for {record_date}",
+        f"user {user.username} created record #{record_id} for {record_date} -> {wake_date}",
         user_id=user.id,
         username=user.username,
         ip=ctx.ip,
@@ -234,14 +258,24 @@ def update_my_record(
 
     _ensure_writable(user)
     data = payload.model_dump(exclude_unset=True)
+    if not data:
+        raise ApiError(400, "error.nothing_to_update", code="error.nothing_to_update")
     if "record_date" in data:
         data["record_date"] = _check_record_date(data["record_date"])
     # 显式传 null 表示"清空该选填项"；必填时间不允许改成空
     for required in ("sleep_time", "wake_time"):
         if required in data and data[required] is None:
             raise ApiError(400, "error.invalid_time", code="error.invalid_time")
-    if not data:
-        raise ApiError(400, "error.nothing_to_update", code="error.nothing_to_update")
+    # 校验要落在"改完之后"的那份数据上：只改时刻也会影响时长，两个日期与时刻必须自洽。
+    effective_date = data.get("record_date") or record.record_date
+    effective_sleep = data.get("sleep_time") or record.sleep_time
+    effective_wake = data.get("wake_time") or record.wake_time
+    wake_input = data["wake_date"] if "wake_date" in data else record.wake_date
+    effective_wake_date = _check_wake_date(
+        effective_date, wake_input, effective_sleep, effective_wake
+    )
+    if effective_wake_date != record.wake_date:
+        data["wake_date"] = effective_wake_date
 
     def _update() -> None:
         with write_session() as session:

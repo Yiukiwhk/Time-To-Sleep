@@ -19,11 +19,12 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import date, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from ..core.timing import (
     circular_diff_minutes,
     circular_mean_minutes,
+    derive_wake_date,
     format_hhmm,
     parse_hhmm,
     sleep_duration_minutes,
@@ -118,22 +119,46 @@ def _meal_state(meal: str, day: str, record: SleepRecord | None, checks: dict) -
     return {"state": "unknown", "source": None}
 
 
+def wake_day_of(record: SleepRecord) -> str:
+    """这条记录属于哪一天：**起床日**。
+
+    一条记录跨两个日历日（昨天 23:30 睡、今天 07:30 起）。它描述的那一天是"起床后
+    的那一天"：记录页勾的三餐是那天的饭，计划日卡片、打卡与达标率也都以那天为准。
+    入睡日（record_date）仍然是睡眠统计、时间轴与保留策略的标签。老记录没有
+    wake_date 时按老规则推导（起床时刻 <= 入睡时刻 → 次日），与迁移脚本一致。
+    """
+    if record.wake_date:
+        return record.wake_date
+    return derive_wake_date(record.record_date, record.sleep_time, record.wake_time)
+
+
 def meal_history(
     db, user_id: int, *, days: int = MEAL_HISTORY_DAYS, today: date | None = None
 ) -> dict:
-    """最近若干天的三餐执行情况（含来源），用于"未吃早餐 → 午餐前移"与达标统计。"""
+    """最近若干天的三餐执行情况（含来源），用于"未吃早餐 → 午餐前移"与达标统计。
+
+    键是**起床日**（见 `wake_day_of`）：同一天可能落到多条记录上（例如同一晚分两次
+    记），此时取 updated_at 较新的一条 —— 与 `_meal_state` 里"打卡与勾选取较新一方"
+    的口径一致。
+    """
     today = today or date.today()
     start = (today - timedelta(days=days - 1)).isoformat()
-    records = {
-        row.record_date: row
-        for row in db.execute(
+    records: dict[str, SleepRecord] = {}
+    for row in (
+        db.execute(
             select(SleepRecord).where(
-                SleepRecord.user_id == user_id, SleepRecord.record_date >= start
+                SleepRecord.user_id == user_id,
+                # 起床日也要纳入：昨天入睡、今天起床的记录属于今天这一格
+                or_(SleepRecord.record_date >= start, SleepRecord.wake_date >= start),
             )
         )
         .scalars()
         .all()
-    }
+    ):
+        key = wake_day_of(row)
+        current = records.get(key)
+        if current is None or (row.updated_at or utcnow()) >= (current.updated_at or utcnow()):
+            records[key] = row
     checks = {
         (row.check_date, row.meal): row
         for row in db.execute(
@@ -1081,6 +1106,7 @@ __all__ = [
     "refusal_preview",
     "breakfast_state_today",
     "meal_history",
+    "wake_day_of",
     "breakfast_skipped_streak",
     "refused_breakfast_today",
     "lunch_shift_minutes",
