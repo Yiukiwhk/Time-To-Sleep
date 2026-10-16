@@ -324,6 +324,10 @@ if (-not $SkipBrowser) {
                     Check "clicking ate-it undoes the shift" (($rf.undone.dinner -eq $rf.before.dinner) -and ($rf.undone.lunch -eq $rf.before.lunch)) ("undone=" + $rf.undone.lunch + "/" + $rf.undone.dinner + " before=" + $rf.before.lunch + "/" + $rf.before.dinner)
                     Check "fast mode explains the fixed single-day plan" ($rf.days_locked -ne "") ("days_locked='" + $rf.days_locked + "'")
                     Check "fast mode hides the day slider" ([int]$rf.days_range_hidden -eq 1) ("range_hidden=" + $rf.days_range_hidden)
+                    # 折叠/展开：有方案时表单整张卡要收起（不能留一个空壳卡片），
+                    # 结果区的「重新生成方案」要能把它原样展开回来
+                    Check "the form is folded away while a plan is open" ([int]$rf.form_collapsed_with_plan -eq 1) ("form_collapsed_with_plan=" + $rf.form_collapsed_with_plan)
+                    Check "regenerate brings the form back" (([int]$rf.regenerate_present -eq 1) -and ([int]$rf.form_open_after_regenerate -eq 1)) ("regenerate_present=" + $rf.regenerate_present + " form_open_after_regenerate=" + $rf.form_open_after_regenerate)
                 }
             }
             if ($mode -eq "deviation") {

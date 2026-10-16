@@ -573,15 +573,9 @@ function bindPlanActions(root) {
 
 /* ------------------------------ 表单 ------------------------------ */
 
-function formHtml(collapsed) {
+function formHtml() {
   return `<aside class="card stack" id="advice-form" style="gap:14px">
-    ${
-      collapsed
-        ? `<button class="btn btn-sm btn-block" id="advice-form-toggle">${escapeHtml(
-            t("advice.form.title")
-          )}</button>`
-        : `<h2 style="margin:0">${escapeHtml(t("advice.form.title"))}</h2>`
-    }
+    <h2 style="margin:0">${escapeHtml(t("advice.form.title"))}</h2>
     <div class="field">
       <label>${escapeHtml(t("advice.mode"))}</label>
       <div class="segment" id="mode-switch">
@@ -689,11 +683,9 @@ function syncForm(root, { collapse } = {}) {
       : t("advice.warn.no_custom_target");
   }
 
+  // 折叠只切容器这一个类：CSS 里 form-collapsed 让整张卡不显示，
+  // 不必再逐个切子节点的 .hidden（那会把「快速模式藏天数」等正常状态一起搅乱）
   box.classList.toggle("form-collapsed", collapsed);
-  Array.from(box.children).forEach((node) => {
-    const isToggle = node.id === "advice-form-toggle" || node.classList.contains("advice-form-toggle-wrap");
-    node.classList.toggle("hidden", collapsed ? !isToggle : isToggle);
-  });
 }
 
 function formPayload() {
@@ -744,10 +736,6 @@ function bindForm(root) {
   });
 
   qs("#generate", box)?.addEventListener("click", () => generate(root));
-  qs("#advice-form-toggle", box)?.addEventListener("click", () => {
-    view.formOpen = !view.formOpen;
-    syncForm(root);
-  });
 }
 
 /* ------------------------------ 状态归一化 ------------------------------ */
@@ -1099,7 +1087,7 @@ function renderShell(root) {
       </div>
     </div>
     <div class="advice-layout">
-      ${formHtml(false)}
+      ${formHtml()}
       <section class="stack" id="advice-result" style="gap:16px"></section>
     </div>`;
 }

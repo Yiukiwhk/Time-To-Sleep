@@ -667,7 +667,8 @@
   gap: 12px;
 }
 
-#advice-form.form-collapsed { gap: 0; }
+/* 折叠态整张卡不显示：展开入口是结果区的「重新生成方案」按钮（syncForm 切这个类） */
+#advice-form.form-collapsed { display: none; }
 
 /* ------------------------------ 参考文献弹窗 ------------------------------ */
 

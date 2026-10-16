@@ -300,6 +300,16 @@ grep_absent "i18n.js: no record"       "$WEBROOT/shared/i18n.js"                
 grep_absent "references.js: no 更正"   "$WEBROOT/shared/references.js"             '更正'
 grep_file   "references.js: note kept" "$WEBROOT/shared/references.js"             'Crossref / PubMed'
 
+# This release also fixes the folded plan form: it used to blank out every child of the
+# card and leave an empty shell behind (the "generate new plan" button it expected was
+# never rendered). Folding now hides the whole card, so the shipped CSS must say
+# display:none and the dead toggle must be gone from the shipped script.
+echo "== 4h. the folded form hides the whole card =="
+grep_absent "advice.js: dead toggle gone" "$WEBROOT/user/js/pages/advice.js"        'advice-form-toggle'
+grep_file   "advice.js: single form shape" "$WEBROOT/user/js/pages/advice.js"       'function formHtml()'
+grep_file   "app.css: folded card hidden"  "$WEBROOT/user/css/app.css"              'form-collapsed { display: none'
+grep_absent "app.css: no empty shell"      "$WEBROOT/user/css/app.css"              'form-collapsed { gap: 0'
+
 echo
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"
