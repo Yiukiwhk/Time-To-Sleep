@@ -194,6 +194,21 @@ if (-not $SkipBrowser) {
             } elseif ($adviceModes -contains $mode) {
                 Check "[$mode] mini timeline probe returned geometry" $false "tl_mini missing from the render summary"
             }
+            # 用户看到时间图里睡眠断成两截，以为是"睡了两觉"：两截必须各自标出来，
+            # 并且轴上要说清是同一觉（跨零点、轴两端相接）。
+            # 探针字段是压缩过的短名（p=part / l=label / r=range）：摘要要塞进 GET 查询串，
+            # Nginx 对超过 8k 的请求行回 414，字段名省下来的每个字节都算数。
+            if ($adviceModes -contains $mode) {
+                $halves = @($json.tl_today.sleep_halves)
+                $halfParts = ($halves | ForEach-Object { $_.p }) -join "/"
+                $halfLabels = ($halves | ForEach-Object { $_.l }) -join "/"
+                Check "[$mode] the night is drawn as two labelled halves" (($halves.Count -eq 2) -and ($halves[0].p -ne $halves[1].p) -and ($halves[0].l -ne "") -and ($halves[1].l -ne "") -and ($halves[0].l -ne $halves[1].l)) ("parts=" + $halfParts + " labels=" + $halfLabels)
+                Check "[$mode] each sleep half keeps its own time range" (@($halves | Where-Object { $_.r -match '\d{2}:\d{2}.\d{2}:\d{2}' }).Count -eq 2) ("ranges=" + (($halves | ForEach-Object { $_.r }) -join " | "))
+                Check "[$mode] the axis says the two halves are one night" ([int]$json.tl_today.join_marked -eq 1) ("parts=" + $halfParts)
+                if ($json.tl_mini) {
+                    Check "[$mode] the mini axis keeps the join note" ([int]$json.tl_mini.join_marked -eq 1) ("mini=" + (@($json.tl_mini.sleep_halves | ForEach-Object { $_.l + $_.r }) -join " | "))
+                }
+            }
             # 用户报的「PC 页面挤在一边 / 时间图被压缩在一排」：表单折叠后布局只剩一列时，
             # 方案区必须占满整行，右侧不能留下空白带。（表单展开时方案区是第二列，同样贴到右边缘。）
             $al = $json.advice_layout

@@ -357,6 +357,18 @@ grep_file "i18n.js: wake date label"       "$WEBROOT/shared/i18n.js"            
 grep_file "i18n.js: wake date errors"      "$WEBROOT/shared/i18n.js"                      'error.invalid_date_range'
 grep_absent "records.js: single date form gone" "$WEBROOT/user/js/pages/records.js"       'records.date'
 
+# 4l. the night that crosses midnight is drawn as two labelled halves (the bedtime-side
+# piece at the tail of the axis, the wake-side piece at its head) and the sleep badge on
+# the axis says the two ends are one night.  The hooks are data-tl-part / data-tl-join so
+# the acceptance script can assert on them without matching Chinese copy.
+echo "== 4l. the night is labelled as two halves that join =="
+grep_file "timeline.js: halves are tagged"  "$WEBROOT/shared/timeline.js" 'data-tl-part'
+grep_file "timeline.js: halves join note"   "$WEBROOT/shared/timeline.js" 'data-tl-join'
+grep_file "timeline.js: half labels"        "$WEBROOT/shared/timeline.js" 'advice.timeline.sleepFirst'
+grep_file "i18n.js: first half label"       "$WEBROOT/shared/i18n.js"     'advice.timeline.sleepFirst'
+grep_file "i18n.js: second half label"      "$WEBROOT/shared/i18n.js"     'advice.timeline.sleepLast'
+grep_file "i18n.js: join note"              "$WEBROOT/shared/i18n.js"     'advice.timeline.sleepSplit'
+
 echo
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"

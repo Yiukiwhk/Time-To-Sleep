@@ -342,7 +342,7 @@
         "lunch": {"enabled": true, "best_time": "12:18", "time": "12:18", "window_start": "12:18", "window_end": "14:18", "bar_minutes": 60, "anchor": "both", "shifted_minutes": 0, "note": null},
         "dinner": {"enabled": true, "best_time": "19:15", "time": "19:15", "window_start": "19:15", "window_end": "20:45", "bar_minutes": 60, "anchor": "sleep", "shifted_minutes": 0, "note": null}
       },
-      "timeline": {"axis_start": "05:05", "axis_end": "01:45", "span_minutes": 1240, "sleep_label": "23:45 → 07:05", "sleep_minutes": 440, "items": [{"kind": "sleep", "start": "23:45", "end": "07:05", "minutes": 440}]},
+      "timeline": {"axis_start": "05:05", "axis_end": "01:45", "span_minutes": 1240, "sleep_label": "23:45–07:05", "sleep_minutes": 1000, "items": [{"kind": "sleep", "segment": "morning", "start": 0, "end": 120, "start_time": "05:05", "end_time": "07:05", "partial": true}, {"kind": "meal", "meal": "breakfast", "start": 135, "end": 165, "start_time": "07:20", "end_time": "07:35", "partial": false, "shifted_minutes": 0}, {"kind": "sleep", "segment": "night", "start": 1120, "end": 1240, "start_time": "23:45", "end_time": "01:45", "partial": true}]},
       "tips": ["advice.tip.keep_regular"]
     }
   ],
@@ -358,15 +358,19 @@
       "dinner_shift_minutes": 60
     }
   },
-  "timeline": {"axis_start": "23:45", "axis_end": "23:45", "span_minutes": 1440, "items": []},
+  "timeline": {"axis_start": "05:05", "axis_end": "01:45", "span_minutes": 1240, "sleep_label": "23:45–07:05", "sleep_minutes": 1000, "items": [{"kind": "sleep", "segment": "morning", "start": 0, "end": 120, "start_time": "05:05", "end_time": "07:05", "partial": true}, {"kind": "sleep", "segment": "night", "start": 1120, "end": 1240, "start_time": "23:45", "end_time": "01:45", "partial": true}]},
   "plan_meta": {"start_date": "2026-02-20", "target_date": "2026-02-26", "postponed_days": 0, "replans": 0, "saved": true, "plan_id": 41},
   "generated_at": "2026-02-20T07:30:00",
   "engine": "adaptive-v2"
 }
 ```
 
-`timeline.items` 的元素形如 `{"kind": "sleep"|"meal", "start": "HH:MM", "end": "HH:MM",
-"minutes": 460, "meal": "breakfast"}`，跨零点按轴起点取模处理（见 [ALGORITHM.md](ALGORITHM.md)）。
+`timeline.items` 的元素是 `{"kind": "sleep"|"meal", ...}`：睡眠条目带 `segment`（`morning` =
+轴头那截、`night` = 轴尾那截）与 `partial: true`，三餐条目带 `meal` 与 `shifted_minutes`。
+`start` / `end` 是**相对 `axis_start` 的分钟偏移**（不是钟点字符串），`start_time` / `end_time`
+是给人看的钟点。轴窗是「起床前 2 小时 → 入睡后 2 小时」，所以整夜睡眠被切在轴的两头：
+前端把两截标成「睡眠前段 / 睡眠后段」，并在轴上的睡眠徽标里写「跨零点，轴两端相接」
+（数据结构与跨零点处理见 [ALGORITHM.md](ALGORITHM.md) 第 9 节）。
 
 今日卡片上另有一个 **`today.refusal_preview`**（只有今天有）：它预先算好“现在点『不想吃早餐』会把
 午餐 / 晚餐挪到几点”，字段与 `meals.*` 同构（`best_time` / `window_start` / `window_end`），外加

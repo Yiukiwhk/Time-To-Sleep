@@ -683,6 +683,15 @@ def test_timeline_wraps_around_midnight() -> None:
     morning = [item for item in timeline["items"] if item.get("segment") == "morning"][0]
     assert (morning["start"], morning["end"]) == (0, 120)
     assert (night["start"], night["end"]) == (1140, 1260)
+    # 两截睡眠都属于"同一觉"，各自带 partial 标记与前/后段的时间区间：
+    # 前端靠 segment 把它们标成"睡眠前段/后段"，并在轴徽标里写"两端相接"
+    # （用户看时间图时以为睡了两觉）。改这里就要同步改 frontend/shared/timeline.js。
+    assert {item["segment"]: item["partial"] for item in timeline["items"] if item["kind"] == "sleep"} == {
+        "morning": True,
+        "night": True,
+    }
+    assert (morning["start_time"], morning["end_time"]) == ("06:30", "08:30")
+    assert (night["start_time"], night["end_time"]) == ("01:30", "03:30")
     # 餐次条目：start_time 直接取 best_time，条长由 bar_minutes 换算成分钟落在 [start, end)。
     # 注意条目里没有 bar_minutes 字段，所以只能断言 end - start —— 这里原来写的是
     # `assert meals[0]["start_time"] == "08:45" and meals[0]["bar_minutes"] if False else True`：

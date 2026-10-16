@@ -3,7 +3,8 @@
    - 轴窗固定为 timeline.axis_start → axis_end（span_minutes），每个条的位置
      就是 start / span 的百分比，不做任何时间换算
    - 跨零点的夜间睡眠条后端已经拆成 morning（轴头）与 night（轴尾）两段，
-     这里只负责各画各的，绝不重新推导环绕
+     这里只负责各画各的，绝不重新推导环绕；两截分别标成"睡眠前段/后段"，
+     并在轴上的睡眠徽标里补一句"跨零点，轴两端相接"，免得被当成睡了两觉
    - 宽屏横向、窄屏纵向：两套标记都渲染，由 CSS 媒体查询决定显示哪一套
      （display:none 的节点不占布局，也不需要 JS 监听 resize）
    - 窄屏不再是"把竖轨按时间比例压缩"：20 小时轴窗里 30 分钟的三餐只有几个像素高，
@@ -22,6 +23,15 @@ const MEAL_SHORT = {
   dinner: "advice.meal.short.dinner",
 };
 const HOUR = 1440;
+
+// 跨零点的睡眠会被轴窗切成两截：贴入睡那截在轴尾（segment: "night"），贴起床那截在轴头
+// （segment: "morning"）。两截各自标成"前段/后段"，轴上再用一句"两端相接"说明它们是同一觉，
+// 否则用户会以为是"睡了两觉"。data-tl-part 给验收脚本一个稳定的钩子（不依赖中文文案）。
+const SLEEP_PART_LABEL = {
+  night: "advice.timeline.sleepFirst",
+  morning: "advice.timeline.sleepLast",
+};
+const SLEEP_PART_ATTR = { night: "first", morning: "last" };
 
 /** "HH:MM" -> 当天分钟数；非法值返回 null */
 export function parseClock(value) {
@@ -50,13 +60,17 @@ function tickStep(span) {
 const pct = (value) => `${Math.max(0, Math.min(100, Number(value) || 0)).toFixed(3)}%`;
 
 function barLabel(item) {
-  return item.kind === "sleep" ? t("advice.timeline.sleep") : t(`records.meal.${item.meal}`);
+  if (item.kind !== "sleep") return t(`records.meal.${item.meal}`);
+  const partKey = item.partial ? SLEEP_PART_LABEL[item.segment] : "";
+  return partKey ? t(partKey) : t("advice.timeline.sleep");
 }
 
 function barHint(item) {
   const label = barLabel(item);
   const range = item.start_time && item.end_time ? `${item.start_time}–${item.end_time}` : "";
-  return range ? `${label} ${range}` : label;
+  const base = range ? `${label} ${range}` : label;
+  // 只有被切开的睡眠条需要补一句"它和轴另一端是同一觉"
+  return item.kind === "sleep" && item.partial ? `${base} · ${t("advice.timeline.sleepSplit")}` : base;
 }
 
 /**
@@ -108,8 +122,11 @@ export function renderTimeline(timeline, opts = {}) {
       const row =
         `<span class="tl-rowtrack"><span class="tl-bar"></span></span>` +
         (range && !mini ? `<span class="tl-item-time">${escapeHtml(range)}</span>` : "");
+      // 被切开的睡眠条标出自己属于前段还是后段（迷你图里睡眠条不写名字，两者互不影响）
+      const part = item.kind === "sleep" ? SLEEP_PART_ATTR[item.segment] || "" : "";
+      const partAttr = part ? ` data-tl-part="${part}"` : "";
       return (
-        `<span class="tl-item ${kind}" style="--pos:${pct((start / span) * 100)};--len:${pct(
+        `<span class="tl-item ${kind}"${partAttr} style="--pos:${pct((start / span) * 100)};--len:${pct(
           ((end - start) / span) * 100
         )}" title="${escapeHtml(barHint(item))}">${label}${row}</span>`
       );
@@ -146,13 +163,19 @@ export function renderTimeline(timeline, opts = {}) {
     }
   }
 
+  // 睡眠被轴窗切成两截时，在轴上的睡眠徽标里说明"两端相接"：
+  // 用户看到的两条睡眠其实是一觉（入睡那截排在轴尾，起床那截排在轴头）。
+  const sleepHalves = items.filter((item) => item.kind === "sleep" && item.partial);
+  const splitSleep = sleepHalves.length > 1;
+  const joinAttr = splitSleep ? ' data-tl-join="1"' : "";
+  const joinNote = splitSleep ? ` · ${t("advice.timeline.sleepSplit")}` : "";
+  const sleepAxisText = `${t("advice.timeline.sleep")} ${timeline.sleep_label || ""}${joinNote}`;
+
   const axisHtml = `
     <div class="tl-axis">
       <span class="tl-axis-end tl-axis-first">${escapeHtml(timeline.axis_start || "")}</span>
       ${ticks.join("")}
-      <span class="tl-axis-sleep">${escapeHtml(t("advice.timeline.sleep"))} ${escapeHtml(
-        timeline.sleep_label || ""
-      )}</span>
+      <span class="tl-axis-sleep"${joinAttr}>${escapeHtml(sleepAxisText)}</span>
       <span class="tl-axis-end tl-axis-last">${escapeHtml(timeline.axis_end || "")}</span>
     </div>`;
 
@@ -176,7 +199,9 @@ export function renderTimeline(timeline, opts = {}) {
   const axisVHtml = `
     <div class="tl-axis tl-axis-v">
       <span class="tl-axis-end">${escapeHtml(timeline.axis_start || "")}</span>
-      <span class="tl-axis-sleep">${escapeHtml(timeline.sleep_label || "")}</span>
+      <span class="tl-axis-sleep"${joinAttr}>${escapeHtml(
+        `${timeline.sleep_label || ""}${joinNote}`
+      )}</span>
       <span class="tl-axis-end">${escapeHtml(timeline.axis_end || "")}</span>
     </div>`;
 

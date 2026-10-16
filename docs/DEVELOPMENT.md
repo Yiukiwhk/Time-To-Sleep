@@ -155,7 +155,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 | `refused` | 1440×1240 | 早餐卡片提供「不想吃」按钮 → 真点提交打卡（`POST /api/advice/checkin`）、晚餐精确提前 60 分钟、午餐不推后（有空间时提前）、按钮进入激活态、点「吃了」撤销后恢复、快速模式说明固定单日并隐藏天数滑块 |
 | `mobile` | 390×900 | 窄屏改用纵向时间图、时间图条 ≥4、无横向溢出 |
 
-每一档都会顺带跑八条“用户看得到”的回归护栏，任何一条不过整体失败：
+每一档都会顺带跑九条“用户看得到”的回归护栏，任何一条不过整体失败：
 
 1. **没有漏翻的 i18n key**：正文里不允许出现 `advice.* / records.* / common.*` 这类原始 key。
 2. **没有未填充的占位符**：正文里不允许出现 `{streak}` 这种花括号参数（`tp()` 漏传参数的典型症状）。
@@ -184,6 +184,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
    有值、弹窗有没有“起床日”提示放进 `record_form`，`records` 档据此断言 7 条；后端侧的配对
    由 `tests/test_advice_engine.py` 的 5 个新用例守着（默认 +1、可同天、范围与先后校验、
    三餐按起床日配对、打卡回写到起床日那条记录）。
+9. **跨零点那晚标成两截并说明相接**：轴窗是“起床前 2 小时 → 入睡后 2 小时”，整夜睡眠因此被切在
+   轴的两头（贴入睡那截在轴尾、贴起床那截在轴头），用户会以为“睡了两觉”。前端现在把两截标成
+   「睡眠前段 / 睡眠后段」，并在轴上的睡眠徽标里写「跨零点，轴两端相接」。探针按 `data-tl-part`
+   与 `data-tl-join`（不依赖中文文案）把两截的标注、各自的钟点区间与轴徽标收进 `tl_today` /
+   `tl_mini`，各档断言：两截标注互不相同且非空、两截都带自己的时间区间、轴上有“相接”标记
+   （迷你图同样要带）。数据侧的 `segment` / `partial` / `start_time` / `end_time` 由
+   `::test_timeline_wraps_around_midnight` 守着。
 
 ## 前端开发硬约束
 

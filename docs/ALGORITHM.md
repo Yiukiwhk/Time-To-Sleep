@@ -166,30 +166,46 @@
 
 ## 9. 24 小时时间图的数据结构与跨零点处理
 
-- 数据结构（`timeline` 字段）：
+- **轴窗不是 00:00–24:00**，而是「起床前 2 小时 → 入睡后 2 小时」（`_timeline()`，
+  `backend/app/services/advice.py`）：`axis_start = wake − 120`、`axis_end = sleep + 120`。
+  这样轴覆盖的是「醒着的一天 + 两头各 2 小时」，因此天然跨零点：入睡 01:30 / 起床 08:30 时
+  `axis_start = "06:30"`、`axis_end = "03:30"`、`span_minutes = 1260`。
+- 数据结构（`timeline` 字段，实测样例）：
 
   ```json
   {
-    "axis_start": "18:00",
-    "axis_end": "18:00",
-    "span_minutes": 1440,
-    "sleep_label": "23:30 → 07:10",
-    "sleep_minutes": 460,
+    "axis_start": "05:05",
+    "axis_end": "01:45",
+    "span_minutes": 1240,
+    "sleep_label": "23:45–07:05",
+    "sleep_minutes": 1000,
     "items": [
-      {"kind": "sleep", "start": "23:30", "end": "07:10", "minutes": 460},
-      {"kind": "meal", "meal": "breakfast", "start": "07:25", "end": "07:40", "minutes": 15}
+      {"kind": "sleep", "segment": "morning", "start": 0, "end": 120,
+       "start_time": "05:05", "end_time": "07:05", "partial": true},
+      {"kind": "meal", "meal": "breakfast", "start": 135, "end": 165,
+       "start_time": "07:20", "end_time": "07:35", "partial": false, "shifted_minutes": 0},
+      {"kind": "sleep", "segment": "night", "start": 1120, "end": 1240,
+       "start_time": "23:45", "end_time": "01:45", "partial": true}
     ]
   }
   ```
 
-- **跨零点处理**：睡眠区间通常跨过 00:00，所以时间轴不是 00:00–24:00，而是以“当天的入睡时刻”
-  为轴起点向后展 24 小时（`axis_start` → `axis_end`，`span_minutes` 恒为 1440）。区间条按
-  “相对轴起点的分钟偏移 + 长度”绘制，因此跨零点只需一次取模，不需要为跨天做特例。
-- 每个 `DayPlan` 也有自己的 `timeline`（每日方案里的迷你时间图），结构与顶层一致。
-- 测试：`::test_timeline_wraps_around_midnight`。前端绘制逻辑在 `frontend/shared/timeline.js`
-  （`frontend/shared/README` 不适用，直接看该文件）；窄屏会切换成纵向时间图。
-- 视觉约束：时间图的条不能压到时间刻度或“睡眠/早餐/午餐/晚餐”图例上，本地验收会用
-  `getBoundingClientRect` 判定相交，任何相交都算失败。
+- 条目里的 `start` / `end` 是**相对轴起点的分钟偏移**（不是钟点字符串），前端直接按
+  `start / span_minutes` 算百分比画条，不需要任何时间换算；`start_time` / `end_time` 是给人看的
+  钟点，`sleep_label` 给出睡眠的完整区间（`入睡–起床`）。
+- **跨零点处理**：整夜睡眠被轴窗切在两头 —— 贴入睡的那截落在轴尾（`segment: "night"`）、
+  贴起床的那截落在轴头（`segment: "morning"`），两截都带 `partial: true`，中间那几个小时
+  不在轴上（那时用户是醒着的，不需要画）。前端把两截分别标成「睡眠前段 / 睡眠后段」，
+  并在轴上的睡眠徽标里补一句「跨零点，轴两端相接」，否则用户会以为"睡了两觉"。
+- `sleep_minutes` 是未环绕前的 `sleep − wake`（排查用，前端不读它）。
+- 每个 `DayPlan` 也有自己的 `timeline`（每日方案里的迷你时间图），结构与顶层一致；
+  顶层 `timeline` 就是今日卡片那张的副本。
+- 测试：`::test_timeline_wraps_around_midnight`（断言 `axis_start == "06:30"`、两截的
+  `segment` / `partial` 与各自的 `start_time` / `end_time`）。前端绘制逻辑在
+  `frontend/shared/timeline.js`；窄屏会切换成纵向时间图。
+- 视觉约束：时间图的条不能压到时间刻度或"睡眠/早餐/午餐/晚餐"图例上，本地验收会用
+  `getBoundingClientRect` 判定相交，任何相交都算失败；两截的标注与轴上的"相接"说明由验收
+  脚本按 `data-tl-part` / `data-tl-join` 断言（不依赖中文文案）。
 
 ## 10. 工程默认值一览
 
