@@ -429,7 +429,7 @@
     "recent": [{"date": "2026-02-20", "meals": {"breakfast": {"state": "refused", "source": "checkin"}, "lunch": {"state": "unknown", "source": null}, "dinner": {"state": "unknown", "source": null}}}]
   },
   "today": {"date": "2026-02-20", "meals": {"lunch": {"best_time": "11:00", "window_end": "13:00"}, "dinner": {"best_time": "18:15", "window_end": "19:45"}}},
-  "timeline": {"span_minutes": 1200, "items": []}
+  "timeline": {"axis_start": "05:05", "axis_end": "01:45", "span_minutes": 1240, "sleep_label": "23:45–07:05", "sleep_minutes": 1000, "items": [{"kind": "sleep", "segment": "morning", "start": 0, "end": 120, "start_time": "05:05", "end_time": "07:05", "partial": true}, {"kind": "sleep", "segment": "night", "start": 1120, "end": 1240, "start_time": "23:45", "end_time": "01:45", "partial": true}]}
 }
 ```
 
