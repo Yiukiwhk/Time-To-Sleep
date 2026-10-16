@@ -686,6 +686,9 @@ function syncForm(root, { collapse } = {}) {
   // 折叠只切容器这一个类：CSS 里 form-collapsed 让整张卡不显示，
   // 不必再逐个切子节点的 .hidden（那会把「快速模式藏天数」等正常状态一起搅乱）
   box.classList.toggle("form-collapsed", collapsed);
+  // 表单不显示后它就不再是网格项，方案区会掉进左边那条 320px 的窄列 —— 布局也要跟着切单列
+  const layout = box.closest(".advice-layout");
+  if (layout) layout.classList.toggle("form-folded", collapsed);
 }
 
 function formPayload() {

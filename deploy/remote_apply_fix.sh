@@ -310,6 +310,16 @@ grep_file   "advice.js: single form shape" "$WEBROOT/user/js/pages/advice.js"   
 grep_file   "app.css: folded card hidden"  "$WEBROOT/user/css/app.css"              'form-collapsed { display: none'
 grep_absent "app.css: no empty shell"      "$WEBROOT/user/css/app.css"              'form-collapsed { gap: 0'
 
+# 4i. Desktop layout: a folded form must not squeeze the plan into the 320px column.
+# Hiding the form makes it stop being a grid item, so the plan fell into the narrow
+# first track and the page hugged the left edge. The fix is the .form-folded class on
+# the layout plus a centred page, so all three pieces must be in the shipped files.
+echo "== 4i. the folded layout uses the full row on a desktop =="
+grep_file   "app.css: folded layout is one column" "$WEBROOT/user/css/app.css"      'form-folded'
+grep_file   "advice.js: layout follows the fold"   "$WEBROOT/user/js/pages/advice.js" 'form-folded'
+grep_file   "app.css: page centred on wide screens" "$WEBROOT/user/css/app.css"     'margin-inline: auto'
+grep_file   "app.css: two day columns on wide screens" "$WEBROOT/user/css/app.css"  'min-width: 1200px'
+
 echo
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"

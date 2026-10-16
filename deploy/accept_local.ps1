@@ -194,6 +194,19 @@ if (-not $SkipBrowser) {
             } elseif ($adviceModes -contains $mode) {
                 Check "[$mode] mini timeline probe returned geometry" $false "tl_mini missing from the render summary"
             }
+            # 用户报的「PC 页面挤在一边 / 时间图被压缩在一排」：表单折叠后布局只剩一列时，
+            # 方案区必须占满整行，右侧不能留下空白带。（表单展开时方案区是第二列，同样贴到右边缘。）
+            $al = $json.advice_layout
+            if ($adviceModes -contains $mode) {
+                if ($al) {
+                    Check "[$mode] no empty band right of the plan" ([int]$al.result_right_gap -le 4) ("layout_w=" + $al.layout_w + " result_w=" + $al.result_w + " right_gap=" + $al.result_right_gap)
+                    if ([int]$al.form_visible -eq 0) {
+                        Check "[$mode] folded form lets the plan use the whole row" ([int]$al.result_w -ge ([int]$al.layout_w - 4)) ("layout_w=" + $al.layout_w + " result_w=" + $al.result_w)
+                    }
+                } else {
+                    Check "[$mode] layout probe returned geometry" $false "advice_layout missing from the render summary"
+                }
+            }
             # 现实作息窗口（用户需求）：探针作息（00:30 睡 / 08:30 起，目标 23:00/07:00）全程正常，
             # 所以计划里每一行的午餐都要落在 11:00–15:00、晚餐落在 17:00–22:00。
             # 作息越界的用例不在这里断言（那时算法会回落到相对锚点，出窗才是对的）。

@@ -164,6 +164,8 @@
   padding: 22px 26px 40px;
   max-width: 1180px;
   width: 100%;
+  /* 宽屏上居中：否则内容顶在侧栏右边，显示器右侧空一大片 */
+  margin-inline: auto;
 }
 
 .page-head {
@@ -242,11 +244,14 @@
 
 .advice-layout {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: var(--gap);
   align-items: start;
 }
 .advice-layout #advice-form { position: sticky; top: 18px; }
+/* 表单折叠时它是 display:none，不再是网格项：结果区会掉进左边那条 320px 的窄列，
+   所以折叠态把布局切成单列，让方案占满整行（宽屏才不会挤出右边的空白） */
+.advice-layout.form-folded { grid-template-columns: minmax(0, 1fr); }
 
 .advice-controls {
   display: flex;
@@ -269,6 +274,10 @@
 .summary-cell .value { font-size: 17px; font-weight: 600; font-family: var(--mono); }
 
 .day-list { display: flex; flex-direction: column; gap: 12px; }
+/* 宽屏：7 天方案排两栏，免得每张日卡都独占一整行、页面被拉得很长 */
+@media (min-width: 1200px) {
+  .day-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* ------------------------------ 24 小时时间图 ------------------------------ */
 /* 位置全部由 --pos / --len 百分比驱动（--pos 是起点、--len 是长度）。
@@ -939,5 +948,12 @@
   width: 100%;
   display: flex;
   justify-content: center;
+  margin-inline: auto;
+}
+
+/* 大屏（宽显示器）：把内容上限跟着放宽，否则侧栏右边永远留一大片空白 */
+@media (min-width: 1600px) {
+  .page,
+  .page-foot { max-width: 1440px; }
 }
 

@@ -147,7 +147,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 
 | 档位 | 视口 | 断言要点 |
 | --- | --- | --- |
-| `base` | 1440×1240 | 今日卡片、三餐签到按钮 ≥6、时间图条 ≥4、now 标线、侧栏 3 项、页脚参考文献入口、时间图为 flex 布局 |
+| `base` | 1440×1240 | 今日卡片、三餐签到按钮 ≥6、时间图条 ≥4、now 标线、侧栏 3 项、页脚参考文献入口、时间图为 flex 布局、折叠表单后方案区占满整行（右侧无空白带） |
 | `refs` | 1440×1240 | 参考文献弹窗打开、≥4 条 DOI 链接 |
 | `deviation` | 1440×1240 | 偏离弹窗打开、提供 3 种策略 |
 | `records` | 1440×1240 | 真点“新增记录”并提交（断言发出 `POST /api/records` 且 201）、保存后弹窗关闭、默认区间为最近 7 天、列表有行 |
@@ -155,7 +155,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 | `refused` | 1440×1240 | 早餐卡片提供「不想吃」按钮 → 真点提交打卡（`POST /api/advice/checkin`）、晚餐精确提前 60 分钟、午餐不推后（有空间时提前）、按钮进入激活态、点「吃了」撤销后恢复、快速模式说明固定单日并隐藏天数滑块 |
 | `mobile` | 390×900 | 窄屏改用纵向时间图、时间图条 ≥4、无横向溢出 |
 
-每一档都会顺带跑五条“用户看得到”的回归护栏，任何一条不过整体失败：
+每一档都会顺带跑六条“用户看得到”的回归护栏，任何一条不过整体失败：
 
 1. **没有漏翻的 i18n key**：正文里不允许出现 `advice.* / records.* / common.*` 这类原始 key。
 2. **没有未填充的占位符**：正文里不允许出现 `{streak}` 这种花括号参数（`tp()` 漏传参数的典型症状）。
@@ -168,6 +168,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
    `max_attempts - 1`（没有清零时会继续往下掉）。探针把这三步的结果放进 `login_reset`，
    验收脚本对每个档位断言一遍；`tests/e2e_http.py` 与 `tests/smoke_test.py` 也有同一条用例
    （管理员解锁同样清掉窗口内的失败记录，所以解锁后不会立刻又被算成"还剩 0 次"）。
+6. **方案区占满整行**：生成表单折叠后 `display:none`，它就不再是 `.advice-layout` 的网格项，
+   方案区会被自动补进左边那条 320px 的窄列（用户报过的“PC 页面挤在一边、时间图被压缩在一排、
+   空间利用率太低”）。探针把 `.advice-layout` 与 `#advice-result` 的 `getBoundingClientRect`
+   放进 `advice_layout`，建议页各档据此断言：右边缘不留空白带（`result_right_gap ≤ 4`），
+   折叠态还要求方案区宽度≈布局宽度。
 
 ## 前端开发硬约束
 
