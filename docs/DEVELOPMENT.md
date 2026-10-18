@@ -155,7 +155,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 | `refused` | 1440×1240 | 早餐卡片提供「不想吃」按钮 → 真点提交打卡（`POST /api/advice/checkin`）、晚餐精确提前 60 分钟、午餐不推后（有空间时提前）、按钮进入激活态、点「吃了」撤销后恢复、快速模式说明固定单日并隐藏天数滑块 |
 | `mobile` | 390×900 | 窄屏改用纵向时间图、时间图条 ≥4、无横向溢出 |
 
-每一档都会顺带跑九条“用户看得到”的回归护栏，任何一条不过整体失败：
+每一档都会顺带跑十条“用户看得到”的回归护栏，任何一条不过整体失败：
 
 1. **没有漏翻的 i18n key**：正文里不允许出现 `advice.* / records.* / common.*` 这类原始 key。
 2. **没有未填充的占位符**：正文里不允许出现 `{streak}` 这种花括号参数（`tp()` 漏传参数的典型症状）。
@@ -191,6 +191,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
    `tl_mini`，各档断言：两截标注互不相同且非空、两截都带自己的时间区间、轴上有“相接”标记
    （迷你图同样要带）。数据侧的 `segment` / `partial` / `start_time` / `end_time` 由
    `::test_timeline_wraps_around_midnight` 守着。
+
+10. **步长曲线画的是同一份数据**：「调整步长」与「每日方案」之间那张图（横轴天数、纵轴累计移动分钟）
+    完全由日卡上的 `step_minutes` 加总而来，所以图上的点与卡片上的数字不会互相矛盾；虚线是“平均速度”
+    参考线，曲线在它上方就说明前几天走得比平均快。探针按 `data-curve-card` / `data-curve-point` /
+    `data-curve-line` 把点数、首末累计、各天步长之和、是否单调、路径是否为平滑曲线、有没有参考线收进
+    `curve_chart`，各档断言：点数 == 日卡数、末点 == 各天步长之和、单调不减、路径是 `M…C…`、参考线存在。
 
 ## 前端开发硬约束
 

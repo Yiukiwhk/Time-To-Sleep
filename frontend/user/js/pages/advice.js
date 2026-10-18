@@ -339,6 +339,160 @@ function adherenceCardHtml(data) {
   </section>`;
 }
 
+/* ------------------------------ 步长曲线 ------------------------------ */
+
+/** 逐日累计：第 i 天“到那天为止一共移动了多少分钟”。日卡上的 step_minutes 就是当天步长，
+ *  加总就还原出累计曲线——所以这张图不需要后端多返回字段，加固前的老快照也能画。 */
+function cumulativeSteps(data = {}) {
+  let sum = 0;
+  return planDays(data).map((day, index) => {
+    const step = Number(day?.step_minutes) || 0;
+    sum += step;
+    return { day: index + 1, step, total: sum };
+  });
+}
+
+/** 单调三次插值（Fritsch–Carlson）：曲线在两点之间不会往回勾、也不会过冲，
+ *  比直接连折线顺，比普通样条稳。返回 SVG 的 M/C 路径。 */
+function smoothPath(points = []) {
+  if (points.length === 0) return "";
+  const first = points[0];
+  if (points.length === 1) return `M ${first.x.toFixed(2)} ${first.y.toFixed(2)}`;
+  const dx = [];
+  const slope = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    dx[i] = points[i + 1].x - points[i].x;
+    slope[i] = dx[i] === 0 ? 0 : (points[i + 1].y - points[i].y) / dx[i];
+  }
+  const tangent = points.map((point, i) => {
+    if (i === 0) return slope[0];
+    if (i === points.length - 1) return slope[slope.length - 1];
+    if (slope[i - 1] * slope[i] <= 0) return 0;
+    const w1 = 2 * dx[i] + dx[i - 1];
+    const w2 = dx[i] + 2 * dx[i - 1];
+    return (w1 + w2) / (w1 / slope[i - 1] + w2 / slope[i]);
+  });
+  let path = `M ${first.x.toFixed(2)} ${first.y.toFixed(2)}`;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const h = dx[i] / 3;
+    const c1x = points[i].x + h;
+    const c1y = points[i].y + tangent[i] * h;
+    const c2x = points[i + 1].x - h;
+    const c2y = points[i + 1].y - tangent[i + 1] * h;
+    path += ` C ${c1x.toFixed(2)} ${c1y.toFixed(2)} ${c2x.toFixed(2)} ${c2y.toFixed(2)}`;
+    path += ` ${points[i + 1].x.toFixed(2)} ${points[i + 1].y.toFixed(2)}`;
+  }
+  return path;
+}
+
+/** 累计步长曲线：横轴天数、纵轴“到那天为止已移动的分钟数”。
+ *  灰色虚线是“均匀速度”参考线——曲线在它上方 = 前几天走得比平均快（先快后缓）。
+ *  某天的步长超过每日建议阈值时，那天的点变暖色（阈值只做提示，不截断计划）。 */
+function curveCardHtml(data) {
+  const steps = data?.plan?.steps;
+  const points = cumulativeSteps(data);
+  const days = points.length;
+  const total = days ? points[days - 1].total : 0;
+  if (!steps || days === 0 || total <= 0) return "";
+  const cap = capOfSteps(steps);
+  // 窄屏换一套更小的 viewBox：SVG 是等比缩放的，用户单位里的 11px 字在 390px 宽的屏上会被
+  // 缩到 6px 左右；直接把坐标系缩小，字相对就大了，读起来才不费劲。
+  const narrow = typeof window !== "undefined" && window.innerWidth > 0 && window.innerWidth < 560;
+  const width = narrow ? 360 : 640;
+  const height = narrow ? 200 : 210;
+  const pad = narrow
+    ? { left: 44, right: 14, top: 14, bottom: 32 }
+    : { left: 52, right: 20, top: 16, bottom: 34 };
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const bottom = pad.top + innerH;
+  const xOf = (index) => (days === 1 ? pad.left + innerW / 2 : pad.left + (index / (days - 1)) * innerW);
+  const yOf = (value) => pad.top + innerH - (value / total) * innerH;
+  const coords = points.map((point, index) => ({ x: xOf(index), y: yOf(point.total) }));
+  const line = smoothPath(coords);
+  const area = `${line} L ${coords[days - 1].x.toFixed(2)} ${bottom.toFixed(2)}`
+    + ` L ${coords[0].x.toFixed(2)} ${bottom.toFixed(2)} Z`;
+  const evenPace = `M ${coords[0].x.toFixed(2)} ${bottom.toFixed(2)}`
+    + ` L ${coords[days - 1].x.toFixed(2)} ${yOf(total).toFixed(2)}`;
+  const columnW = days > 1 ? innerW / (days - 1) : innerW;
+  const avg = Math.round(total / days);
+
+  const yTicks = [0, Math.round(total / 2), total]
+    .map((value) => {
+      const y = yOf(value);
+      return `<line class="curve-grid-line" x1="${pad.left}" x2="${(width - pad.right).toFixed(2)}"`
+        + ` y1="${y.toFixed(2)}" y2="${y.toFixed(2)}" />`
+        + `<text class="curve-axis-text" x="${(pad.left - 10).toFixed(2)}" y="${(y + 4).toFixed(2)}"`
+        + ` text-anchor="end">${value}</text>`;
+    })
+    .join("");
+
+  const labelEvery = Math.max(1, Math.ceil(days / (narrow ? 5 : 8)));
+  const xLabels = points
+    .map((point, index) => {
+      const isEdge = index === 0 || index === days - 1;
+      if (!isEdge && (index + 1) % labelEvery !== 0) return "";
+      return `<text class="curve-axis-text" x="${coords[index].x.toFixed(2)}"`
+        + ` y="${(bottom + 18).toFixed(2)}" text-anchor="middle">${point.day}</text>`;
+    })
+    .join("");
+
+  const dots = points
+    .map((point, index) => {
+      const over = cap > 0 && point.step > cap;
+      let title = tp("advice.curve.point", { day: point.day, total: point.total, step: point.step });
+      if (over) title += ` · ${tp("advice.curve.overCap", { step: point.step, cap })}`;
+      if (index === days - 1) title += ` · ${tp("advice.curve.reached", { days })}`;
+      const radius = index === days - 1 ? 4.6 : 3.4;
+      return `<g class="curve-point" data-curve-point data-day="${point.day}"`
+        + ` data-step="${point.step}" data-total="${point.total}">`
+        + `<title>${escapeHtml(title)}</title>`
+        + `<rect class="curve-hit" x="${(coords[index].x - columnW / 2).toFixed(2)}" y="${pad.top}"`
+        + ` width="${columnW.toFixed(2)}" height="${innerH}" />`
+        + `<circle class="${over ? "curve-dot is-over" : "curve-dot"}"`
+        + ` cx="${coords[index].x.toFixed(2)}" cy="${coords[index].y.toFixed(2)}" r="${radius}" />`
+        + `</g>`;
+    })
+    .join("");
+
+  return `
+    <section class="card stack" data-curve-card style="gap:10px">
+      <div class="row-wrap">
+        <h2 style="margin:0">${escapeHtml(t("advice.curve.title"))}</h2>
+        <span class="grow"></span>
+        <span class="tiny muted">${escapeHtml(
+          tp("advice.curve.caption", { days, total, avg })
+        )}</span>
+      </div>
+      <div class="curve-wrap">
+        <svg class="curve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(
+          t("advice.curve.title")
+        )}">
+          <defs>
+            <linearGradient id="curve-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop class="curve-fill-top" offset="0" />
+              <stop class="curve-fill-bottom" offset="1" />
+            </linearGradient>
+          </defs>
+          <g class="curve-grid">${yTicks}</g>
+          <path class="curve-area" d="${area}" />
+          <path class="curve-avg" d="${evenPace}" />
+          <path class="curve-line" data-curve-line d="${line}" />
+          ${dots}
+          ${xLabels}
+          <text class="curve-axis-text" x="${(width - pad.right).toFixed(2)}" y="${height - 6}"
+            text-anchor="end">${escapeHtml(t("advice.curve.axisDays"))}</text>
+          <text class="curve-axis-text" x="${pad.left}" y="${(pad.top - 4).toFixed(2)}"
+            text-anchor="start">${escapeHtml(t("advice.curve.axisMinutes"))}</text>
+        </svg>
+      </div>
+      <div class="curve-legend">
+        <span><i class="curve-key"></i>${escapeHtml(t("advice.curve.legendCurve"))}</span>
+        <span><i class="curve-key is-avg"></i>${escapeHtml(t("advice.curve.legendAvg"))}</span>
+      </div>
+    </section>`;
+}
+
 /* ------------------------------ 每日方案 ------------------------------ */
 
 /** 不可行时"最后一天要挪多少"：新快照自带 steps.last_step_minutes，
@@ -560,6 +714,8 @@ function renderPlanView(root) {
     </section>
 
     ${stepsCardHtml(data)}
+
+    ${curveCardHtml(data)}
 
     <section class="card stack" style="gap:12px">
       <div class="row-wrap">

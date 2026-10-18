@@ -381,6 +381,15 @@ grep_file   "i18n.js: shape copy"              "$WEBROOT/shared/i18n.js"        
 grep_file   "advice.py: shape parameters"      "$APP_DIR/backend/app/services/advice.py" 'STEP_SHAPE_ALPHA'
 grep_absent "advice.py: fixed curve gone"      "$APP_DIR/backend/app/services/advice.py" 'STEP_CURVE'
 
+# 4n. The cumulative step curve (days on x, minutes moved so far on y) is drawn from the
+# same day steps the cards show, with an even-pace reference line.  Pure frontend: the
+# hooks are data-curve-card / data-curve-line so acceptance can measure it.
+echo "== 4n. the cumulative step curve is deployed =="
+grep_file "advice.js: curve card hook"   "$WEBROOT/user/js/pages/advice.js" 'data-curve-card'
+grep_file "advice.js: smooth path"       "$WEBROOT/user/js/pages/advice.js" 'smoothPath'
+grep_file "app.css: curve styles"        "$WEBROOT/user/css/app.css"        '.curve-svg'
+grep_file "i18n.js: curve title"         "$WEBROOT/shared/i18n.js"          'advice.curve.title'
+
 echo
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"

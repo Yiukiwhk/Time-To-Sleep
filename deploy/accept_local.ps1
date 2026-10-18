@@ -250,6 +250,20 @@ if (-not $SkipBrowser) {
                     Check "[$mode] step card probe returned data" $false "steps_card missing from the render summary"
                 }
             }
+            # 累计步长曲线（新组件）：横轴天数、纵轴“到那天为止已移动的分钟数”。数据全部来自日卡的
+            # step_minutes，于是断言“点数 == 日卡数”“末点 == 各天步长之和”“单调不减”“画的是平滑曲线”。
+            $cv = $json.curve_chart
+            if ($adviceModes -contains $mode) {
+                if ($cv) {
+                    Check "[$mode] the step curve is drawn" (([int]$cv.present -eq 1) -and ([int]$cv.points -ge 1)) ("present=" + $cv.present + " points=" + $cv.points)
+                    Check "[$mode] the curve has one point per day" ([int]$cv.points -eq [int]$json.day_cards) ("points=" + $cv.points + " day_cards=" + $json.day_cards)
+                    Check "[$mode] the curve ends at the summed steps" (([int]$cv.last_total -eq [int]$cv.sum_steps) -and ([int]$cv.last_total -gt 0)) ("last=" + $cv.last_total + " sum=" + $cv.sum_steps)
+                    Check "[$mode] the curve never walks backwards" ([int]$cv.monotone -eq 1) ("monotone=" + $cv.monotone)
+                    Check "[$mode] the curve is smooth and shows the even pace" (([int]$cv.path_ok -eq 1) -and ([int]$cv.has_avg -eq 1)) ("path_ok=" + $cv.path_ok + " avg=" + $cv.has_avg)
+                } else {
+                    Check "[$mode] step curve probe returned data" $false "curve_chart missing from the render summary"
+                }
+            }
             # 现实作息窗口（用户需求）：探针作息（00:30 睡 / 08:30 起，目标 23:00/07:00）全程正常，
             # 所以计划里每一行的午餐都要落在 11:00–15:00、晚餐落在 17:00–22:00。
             # 作息越界的用例不在这里断言（那时算法会回落到相对锚点，出窗才是对的）。

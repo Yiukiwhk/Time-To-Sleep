@@ -51,6 +51,11 @@ s_i  = D · φ(u) / Σφ          再按“累计取整”分配成整数分钟�
   `advice.notice.infeasible` 的 `{step}` 就是这个最大步长、`{cap}` 是 60。单元测试
   `::test_last_step_minutes_reports_the_final_day`、`::test_infeasible_notice_names_the_biggest_step`
   守着“提示里的数字 == 日卡上的数字”。
+- **界面上的“步长曲线”**：把 `plan[*].step_minutes` 逐日累加成一条曲线（横轴天数、纵轴“到那天为止
+  一共移动了多少分钟”），用单调三次插值（Fritsch–Carlson）画成平滑曲线，并用一条“平均速度”虚线
+  （原点 → 终点）做对照：曲线在虚线上方说明前几天走得比平均快，这正是“先快后缓”的视觉表达。
+  某天步长超过每日提示阈值时，该点变暖色。数据只来自日卡已有字段，所以加固前的老方案快照也能画；
+  实现见 `frontend/user/js/pages/advice.js` 的 `cumulativeSteps()` / `smoothPath()` / `curveCardHtml()`。
 
 ## 3. 每日阈值：前移与后移共用 60 分钟
 
