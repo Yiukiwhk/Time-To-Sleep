@@ -104,8 +104,7 @@ sudo nginx -t && sudo systemctl reload nginx
 1. **本地验收**：`deploy/accept_local.ps1` 全绿（含 `e2e_http.py`），改动前端时不要加 `-SkipBrowser`。
 2. **暂存**：`deploy/apply_fix.ps1` 按“本次只改这几个文件”的清单暂存，确认没把 `.tmp/`、`data/`、
    `logs/`、真实凭据带进包里。
-   暂存前 `deploy/check_eol.ps1` 会先扫一遍 `deploy/*.sh`：带 CR 或 BOM 的脚本直接拦下
-   （CRLF 会让 shebang 变成 `bash\r`，远端回退到 `sh` 后 `set -o pipefail` 报错，发版第一步就失败）。
+   发版前顺手确认 `deploy/*.sh` 是 LF、无 BOM：CRLF 的 shebang 会让远端回退到 `sh`，报 `set: pipefail: invalid option name`。
 3. **上传**：`scp` 到服务器临时目录（脚本自动完成）。
 4. **同步**：远端 `rsync -rlt --no-owner --no-group --chmod=D755,F644` 到 `/opt/sleep-schedule`，
    随后补 `chown sleepapp:sleepapp` 与 `chmod -R a+rX`（**不要用 `rsync -a`**，原因见踩坑记录）；
