@@ -97,8 +97,8 @@ def test_advice_shape_and_windows(client: TestClient) -> None:
 
     options = client.get("/api/advice/options").json()
     assert options["engine"] == "adaptive-v2"
-    assert options["steps"]["direction_caps"] == {"advance": 45, "delay": 90}
-    assert options["steps"]["curve_minutes"] == [60, 45, 30, 15]
+    assert options["steps"]["cap_minutes"] == 60
+    assert options["steps"]["shape"] == {"alpha": 0.6, "power": 1.0}
     assert options["deviation"]["ask_minutes"] == 90
 
     body = client.post(
@@ -157,29 +157,40 @@ def test_step_curve_is_decreasing_and_lands_on_target(client: TestClient) -> Non
     body = client.post("/api/advice", json={"mode": "slow", "days": 10}).json()
 
     steps = [day["step_minutes"] for day in body["plan"]]
-    assert steps[0] <= advice_service.STEP_CURVE[0][1]
+    assert steps == advice_service._shape_steps(240, 10)
     assert all(later <= earlier + 1e-6 for earlier, later in zip(steps, steps[1:])), steps
     assert sum(steps) == 240
+    assert steps[-1] > 0, "末日也要继续移动"
+    assert steps[0] <= 1.3 * (240 / 10), "首日只比日均快一点，别一上来就猛推"
     assert body["plan"][-1]["sleep_time"] == "22:00"
 
 
-def test_step_profile_respects_caps_and_front_loads() -> None:
-    """纯函数：每天不超过当天上限、整体先快后缓、总和精确等于总偏移。"""
-    caps = advice_service._step_caps(10, -1)
+def test_step_profile_is_smooth_and_keeps_speed_at_the_end() -> None:
+    """纯函数：形状与天数、跨度无关；总和精确等于总偏移；末日仍在移动。"""
     steps, feasible = advice_service._step_magnitudes(240, 10, -1)
     assert feasible is True
+    assert steps == advice_service._shape_steps(240, 10)
     assert sum(steps) == 240
-    assert all(step <= cap for step, cap in zip(steps, caps)), (steps, caps)
     assert all(later <= earlier for earlier, later in zip(steps, steps[1:])), steps
-    assert steps[0] > steps[-1], steps
+    assert steps[-1] > 0, steps
 
-    # 天数不足时不报 feasible，并把走不完的差额留到最后一天
+    # 尾速恒定：末日保留首日约 62% 的速度，10 天和 30 天都是这一档
+    ten = advice_service._shape_steps(300, 10)
+    thirty = advice_service._shape_steps(300, 30)
+    assert 0.55 <= ten[-1] / ten[0] <= 0.7 and 0.55 <= thirty[-1] / thirty[0] <= 0.7
+    # 开头也不陡：首日只有日均的 1.23 倍左右
+    assert 1.15 <= ten[0] / (300 / 10) <= 1.3
+
+    # 天数不足只影响"是否提示"，不会把差额堆到最后一天（旧实现末日会跳 150 分钟）
     tight, ok = advice_service._step_magnitudes(240, 3, -1)
-    assert ok is False and sum(tight) == 240
-    assert advice_service.suggested_days(240, -1) == 7
-    # 小偏移（日均不足 15 分钟）也能精确落点
+    assert ok is False
+    assert tight == advice_service._shape_steps(240, 3) == [98, 80, 62]
+    assert sum(tight) == 240
+    assert advice_service.suggested_days(240, -1) == 5
+
+    # 小偏移同样平滑落点，不再"集中到更少的天数"
     small, small_ok = advice_service._step_magnitudes(20, 3, 1)
-    assert small_ok is True and sum(small) == 20
+    assert small_ok is True and sum(small) == 20 and all(step > 0 for step in small)
 
 
 def test_last_step_minutes_reports_the_final_day(client: TestClient) -> None:
@@ -189,19 +200,18 @@ def test_last_step_minutes_reports_the_final_day(client: TestClient) -> None:
     body = client.post("/api/advice", json={"mode": "slow", "days": 10}).json()
 
     assert body["steps"]["last_step_minutes"] == body["plan"][-1]["step_minutes"]
-    assert body["steps"]["last_step_minutes"] <= body["steps"]["cap_advance_minutes"]
+    assert body["steps"]["last_step_minutes"] <= body["steps"]["cap_minutes"]
 
-    # 天数不足：差额全压最后一天，那天必然越过当天的上限
+    # 天数不足：只是"某一步越过阈值"，末日不再被堆一个大数
     tight = client.post("/api/advice", json={"mode": "slow", "days": 3}).json()
     assert tight["steps"]["feasible"] is False
     assert tight["steps"]["last_step_minutes"] == tight["plan"][-1]["step_minutes"]
-    assert tight["steps"]["last_step_minutes"] > advice_service._step_caps(
-        tight["steps"]["compact_days"], -1
-    )[-1]
+    assert tight["steps"]["last_step_minutes"] < tight["steps"]["first_step_minutes"]
+    assert tight["steps"]["first_step_minutes"] > advice_service.step_cap(-1)
 
 
-def test_infeasible_notice_names_the_last_day_step(client: TestClient) -> None:
-    """口径统一：不可行提示说清"最后一天要挪 N 分钟"，不再暗示"剩下的可以慢慢来"。"""
+def test_infeasible_notice_names_the_biggest_step(client: TestClient) -> None:
+    """口径统一：不可行提示说清"最大一步 N 分钟、超过每日建议 C 分钟"。"""
     _make_user("tightnotice", rows=_records_pattern("03:00", "11:00"), target=("21:00", "05:00"))
     _login(client, "tightnotice")
     body = client.post("/api/advice", json={"mode": "slow", "days": 3}).json()
@@ -210,20 +220,26 @@ def test_infeasible_notice_names_the_last_day_step(client: TestClient) -> None:
     codes = {notice["code"]: notice for notice in body["notices"]}
     assert "advice.notice.infeasible" in codes
     notice = codes["advice.notice.infeasible"]
-    assert notice["params"]["step"] == body["steps"]["last_step_minutes"]
-    assert notice["params"]["step"] == body["plan"][-1]["step_minutes"]
-    assert notice["params"]["step"] > 0
+    assert notice["params"]["step"] == body["steps"]["max_step_minutes"]
+    assert notice["params"]["step"] == max(day["step_minutes"] for day in body["plan"])
+    assert notice["params"]["cap"] == body["steps"]["cap_minutes"]
+    assert notice["params"]["step"] > notice["params"]["cap"]
     assert notice["params"]["suggested_days"] > len(body["plan"])
 
 
-def test_delay_cap_is_looser_than_advance(client: TestClient) -> None:
+def test_both_directions_share_the_same_threshold(client: TestClient) -> None:
+    """前后移现在共用一个每日阈值；方向只影响偏移符号，不影响曲线形状。"""
+    assert advice_service.step_cap(-1) == advice_service.step_cap(1) == 60
+
     _make_user("delay", rows=_records_pattern("21:30", "05:30"), target=("01:30", "09:30"))
     _login(client, "delay")
     body = client.post("/api/advice", json={"mode": "slow", "days": 3}).json()
+
     assert body["steps"]["direction"] == "delay"
-    assert body["steps"]["direction"] == "delay"
-    assert body["steps"]["cap_delay_minutes"] == 90
-    assert body["steps"]["daily_average_minutes"] <= 90
+    assert body["steps"]["cap_minutes"] == 60
+    steps = [day["step_minutes"] for day in body["plan"]]
+    assert all(later <= earlier for earlier, later in zip(steps, steps[1:])), steps
+    assert body["steps"]["daily_average_minutes"] > 0
 
 
 def test_short_plan_notice_can_be_acknowledged(client: TestClient) -> None:

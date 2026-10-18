@@ -201,9 +201,8 @@ def main() -> int:
     check("每天含三餐时间", all("meals" in day for day in body.get("plan", [])), str(body)[:200])
     check("引擎为 adaptive-v2", body.get("engine") == "adaptive-v2", str(body.get("engine")))
     check(
-        "返回步长策略（前移上限 45 / 后移上限 90）",
-        body.get("steps", {}).get("cap_advance_minutes") == 45
-        and body.get("steps", {}).get("cap_delay_minutes") == 90
+        "返回步长策略（每日建议 60 分钟）",
+        body.get("steps", {}).get("cap_minutes") == 60
         and body["steps"]["direction"] in ("advance", "delay"),
         str(body.get("steps"))[:200],
     )
@@ -284,7 +283,7 @@ def main() -> int:
         "选项接口暴露步长与偏离阈值",
         status == 200
         and body.get("engine") == "adaptive-v2"
-        and body["steps"]["curve_minutes"] == [60, 45, 30, 15]
+        and body["steps"]["shape"] == {"alpha": 0.6, "power": 1.0}
         and body["deviation"]["ask_minutes"] == 90,
         f"{status} {str(body.get('steps'))[:160]}",
     )

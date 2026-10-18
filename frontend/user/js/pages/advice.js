@@ -88,9 +88,9 @@ function noticesHtml(data = {}) {
     .map((notice) => {
       if (notice.acked) return "";
       const params = { ...(notice.params || {}) };
-      // 加 {step} 之前存下来的快照没有这个参数，就地补上，免得页面出现花括号
-      if (notice.code === "advice.notice.infeasible" && params.step === undefined) {
-        params.step = lastStepMinutes(data);
+      if (notice.code === "advice.notice.infeasible") {
+        if (params.step === undefined) params.step = maxStepMinutes(data);
+        if (params.cap === undefined) params.cap = stepCapMinutes(data);
       }
       const ack =
         notice.ackable && !notice.acked
@@ -258,11 +258,12 @@ function stepsCardHtml(data) {
   if (!steps) return "";
   const direction =
     steps.direction === "advance" ? t("advice.steps.direction.advance") : t("advice.steps.direction.delay");
-  const curve = (steps.curve_minutes || []).join("/");
+  const stats = stepStats(data, steps);
+  const cap = capOfSteps(steps);
   const shortPlan = (data.plan?.notices || []).some((item) => item.code === "advice.notice.short_plan");
   const showSuggested = steps.feasible === false || shortPlan;
 
-  return `<section class="card stack" style="gap:10px">
+  return `<section class="card stack" data-steps-card style="gap:10px">
     <div class="row-wrap">
       <h2 style="margin:0">${escapeHtml(t("advice.steps.title"))}</h2>
       <span class="badge badge-accent">${escapeHtml(direction)}</span>
@@ -271,7 +272,7 @@ function stepsCardHtml(data) {
         steps.feasible === false
           ? tp("advice.steps.infeasible", {
               days: steps.suggested_days,
-              step: lastStepMinutes(data.plan || {}),
+              step: stats.max,
             })
           : t("advice.steps.feasible")
       )}</span>
@@ -279,16 +280,18 @@ function stepsCardHtml(data) {
     <div class="info-list">
       <div class="info-line"><span>${escapeHtml(t("advice.steps.dailyAverageLabel"))}</span>
         <strong class="mono">${escapeHtml(tp("advice.steps.dailyAverage", { minutes: steps.daily_average_minutes }))}</strong></div>
+      <div class="info-line"><span>${escapeHtml(tp("advice.steps.caps", { cap }))}</span>
+        <strong class="mono" data-steps-cap>${escapeHtml(`${cap} ${t("advice.minutes")}`)}</strong></div>
       <div class="info-line"><span>${escapeHtml(
-        tp("advice.steps.caps", { advance: steps.cap_advance_minutes, delay: steps.cap_delay_minutes })
-      )}</span><strong class="mono">${escapeHtml(fmtMinutes(steps.hard_cap_minutes))}</strong></div>
-      <div class="info-line"><span>${escapeHtml(tp("advice.steps.curve", { curve }))}</span>
-        <strong class="mono">${escapeHtml(curve)}</strong></div>
+        tp("advice.steps.shape", { first: stats.first, max: stats.max, last: stats.last })
+      )}</span><strong class="mono" data-steps-shape>${escapeHtml(
+        `${stats.first}/${stats.max}/${stats.last}`
+      )}</strong></div>
       ${
         showSuggested
           ? `<div class="info-line"><span>${escapeHtml(t("advice.steps.suggestedDaysLabel"))}</span>
               <strong class="mono">${escapeHtml(
-                tp("advice.steps.suggestedDays", { days: steps.suggested_days })
+                tp("advice.steps.suggestedDays", { days: steps.suggested_days, cap })
               )}</strong></div>`
           : ""
       }
@@ -340,10 +343,51 @@ function adherenceCardHtml(data) {
 
 /** 不可行时"最后一天要挪多少"：新快照自带 steps.last_step_minutes，
  *  加固前存下来的老快照没有这个字段，就从那张日卡自己的 step_minutes 取（同一个数）。 */
+/** 日卡数组：renderPlanView 传进来的是整份 payload，日卡在 payload.plan.plan 里。 */
+function planDays(payload = {}) {
+  if (Array.isArray(payload?.plan?.plan)) return payload.plan.plan;
+  return Array.isArray(payload?.plan) ? payload.plan : [];
+}
+
+function maxStepMinutes(payload = {}) {
+  // 最大一天的步长：新快照读 steps.max_step_minutes，老快照取日卡里最大的 step_minutes。
+  const value = Number(payload?.steps?.max_step_minutes);
+  if (Number.isFinite(value) && value > 0) return value;
+  const days = planDays(payload);
+  const steps = days.map((day) => Number(day?.step_minutes) || 0);
+  return steps.length ? Math.max(...steps) : 0;
+}
+
+/** 每日建议阈值（前后移现在同一个数）：老快照没有 cap_minutes 时退回前移上限。 */
+function stepCapMinutes(payload = {}) {
+  const steps = payload?.steps || {};
+  const value = Number(steps.cap_minutes ?? steps.cap_advance_minutes ?? steps.cap_delay_minutes);
+  return Number.isFinite(value) && value > 0 ? value : 60;
+}
+
+/** 同一份 steps 对象上的阈值（步长卡手里直接是 steps，不再包一层 payload）。 */
+function capOfSteps(steps = {}) {
+  return stepCapMinutes({ steps });
+}
+
+/** 首 / 最大 / 收尾三天的步长：新快照直接读 steps.*，老快照从日卡反推。 */
+function stepStats(data = {}, steps = {}) {
+  const days = planDays(data).map((day) => Number(day?.step_minutes) || 0);
+  const pick = (raw, fallback) => {
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  };
+  return {
+    first: pick(steps.first_step_minutes, days.length ? days[0] : 0),
+    max: pick(steps.max_step_minutes, days.length ? Math.max(...days) : 0),
+    last: pick(steps.last_step_minutes, days.length ? days[days.length - 1] : 0),
+  };
+}
+
 function lastStepMinutes(payload = {}) {
   const value = Number(payload?.steps?.last_step_minutes);
   if (Number.isFinite(value) && value > 0) return value;
-  const days = payload?.plan || [];
+  const days = planDays(payload);
   return Number(days[days.length - 1]?.step_minutes) || 0;
 }
 

@@ -320,7 +320,9 @@
   "source": "custom_target",
   "basis": {"sample_days": 14, "avg_sleep_time": "00:20", "avg_wake_time": "08:10"},
   "target": {"sleep_time": "23:00", "wake_time": "07:00"},
-  "steps": {"direction_caps": {"advance": 45, "delay": 90}, "hard_cap_minutes": 120, "min_step_minutes": 15},
+  "steps": {"cap_minutes": 60, "hard_cap_minutes": 120, "shape": {"alpha": 0.6, "power": 1.0},
+            "first_step_minutes": 53, "max_step_minutes": 53, "last_step_minutes": 33,
+            "feasible": true, "suggested_days": 7},
   "meal_plan": {"breakfast_skipped_streak": 0, "lunch_shift_minutes": 0, "refused_breakfast_today": false, "dinner_shift_minutes": 0,
                 "history": {"breakfast": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}, "lunch": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}, "dinner": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}},
                 "recent": [{"date": "2026-02-20", "meals": {"breakfast": {"state": "eaten", "source": "record"}, "lunch": {"state": "eaten", "source": "record"}, "dinner": {"state": "unknown", "source": null}}]},
@@ -379,11 +381,21 @@
 一致，由 `tests/test_advice_engine.py::test_refusal_preview_matches_the_real_checkin` 守着。
 当天已经是“不想吃”状态时前端不再显示这句提示（再点一次没有意义）。
 
-`steps` 里另有一个 **`last_step_minutes`**：最后一天实际要移动的分钟数（与那张日卡上的
-`step_minutes`、卡片右上角的“今天移动 N 分钟”同源）。天数不够时差额全压在最后一天，它会超过
-当天上限（`curve` 的最后一格），`advice.notice.infeasible` / `advice.steps.infeasible` 两句提示
-就用它把代价写清楚（`{step}`），而不是含糊地说“剩下的可以慢慢来”。加这个字段之前存下的旧快照
-没有它，前端会退回从最后一张日卡的 `step_minutes` 取同一个数。
+`steps` 描述的是**曲线本身**，而不是某张日卡：
+
+- `cap_minutes`：每日建议步长（现在前移/后移都是 **60**）。它只是提示阈值，**不会截断计划**；
+- `hard_cap_minutes`：单日输入上限（120），`fast` 档的可行判定与输入校验用它；
+- `shape`：形状函数的参数 `{alpha, power}`（当前 `0.6 / 1.0`）。曲线由“总偏移 + 天数”现场生成，
+  不再返回固定分段表；
+- `first_step_minutes` / `max_step_minutes` / `last_step_minutes`：首日、最大一步、末日各要移动多少分钟
+  （都与对应日卡的 `step_minutes`、卡片右上角“今天移动 N 分钟”同源）。形状函数下首日就是最大一步，
+  末日仍保留首日约 62% 的速度；
+- `feasible` / `suggested_days`：`feasible = max_step_minutes <= cap_minutes`，不满足时计划照旧排满
+  所选天数（末日仍落在目标上），只是最大一步超过 60 分钟 —— `advice.steps.infeasible` /
+  `advice.notice.infeasible` 用 `{step}`（= `max_step_minutes`）与 `{cap}`（= `cap_minutes`）把代价写清楚。
+
+加 `shape` / `first_step_minutes` 之前存下的旧快照没有这些字段，前端会退回从日卡的 `step_minutes`
+反推首 / 最大 / 收尾三个数，所以老计划的卡片不会出现空值或花括号。
 
 ### `GET /api/advice/plan`
 
@@ -491,9 +503,10 @@
   "target_wake_time": "07:00",
   "meal_flags": {"breakfast": true, "lunch": true, "dinner": true},
   "steps": {
-    "direction_caps": {"advance": 45, "delay": 90},
+    "cap_minutes": 60,
     "hard_cap_minutes": 120,
-    "min_step_minutes": 15
+    "shape": {"alpha": 0.6, "power": 1.0},
+    "short_plan_daily_threshold": 60
   }
 }
 ```

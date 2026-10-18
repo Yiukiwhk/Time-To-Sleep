@@ -271,13 +271,14 @@ def advice_options(
             "dinner": bool(user.meal_dinner),
         },
         "steps": {
-            "direction_caps": {
-                "advance": advice_service.STEP_CAP_ADVANCE,
-                "delay": advice_service.STEP_CAP_DELAY,
-            },
+            # 前移/后移共用同一阈值：只用于提示，不再截断生成的曲线
+            "cap_minutes": advice_service.STEP_CAP_ADVANCE,
             "hard_cap_minutes": advice_service.STEP_CAP_HARD,
-            "min_step_minutes": advice_service.STEP_MIN,
-            "curve_minutes": [minutes for _, minutes in advice_service.STEP_CURVE],
+            # 曲线由「总偏移 + 天数」现场生成，不再是固定分段：只暴露形状参数
+            "shape": {
+                "alpha": advice_service.STEP_SHAPE_ALPHA,
+                "power": advice_service.STEP_SHAPE_POWER,
+            },
             "short_plan_daily_threshold": advice_service.SHORT_PLAN_DAILY_THRESHOLD,
         },
         "deviation": {

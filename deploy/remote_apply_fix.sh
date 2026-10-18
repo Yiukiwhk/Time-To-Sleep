@@ -369,6 +369,18 @@ grep_file "i18n.js: first half label"       "$WEBROOT/shared/i18n.js"     'advic
 grep_file "i18n.js: second half label"      "$WEBROOT/shared/i18n.js"     'advice.timeline.sleepLast'
 grep_file "i18n.js: join note"              "$WEBROOT/shared/i18n.js"     'advice.timeline.sleepSplit'
 
+# 4m. The step curve is no longer a fixed pacing table (60/45/30/15) that ran out
+# halfway: it is generated from the total offset and the chosen number of days by a
+# shape function, so the last day still moves. The card reports the daily hint plus
+# the first / biggest / last day; the old table must be gone from the shipped files.
+echo "== 4m. the step curve is generated from the offset and the days =="
+grep_file   "advice.js: step card hook"        "$WEBROOT/user/js/pages/advice.js"        'data-steps-card'
+grep_file   "advice.js: first/max/last shown"  "$WEBROOT/user/js/pages/advice.js"        'data-steps-shape'
+grep_absent "advice.js: fixed table gone"      "$WEBROOT/user/js/pages/advice.js"        'curve_minutes'
+grep_file   "i18n.js: shape copy"              "$WEBROOT/shared/i18n.js"                 'advice.steps.shape'
+grep_file   "advice.py: shape parameters"      "$APP_DIR/backend/app/services/advice.py" 'STEP_SHAPE_ALPHA'
+grep_absent "advice.py: fixed curve gone"      "$APP_DIR/backend/app/services/advice.py" 'STEP_CURVE'
+
 echo
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"

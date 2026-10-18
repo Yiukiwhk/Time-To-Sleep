@@ -10,9 +10,11 @@
     分级前移（第 1 天 60 → 第 2 天 90 → 第 3 天起 120 分钟，不累积、有上限）。
   * 现有文献不支持"进餐时间能移动昼夜相位"（没有 DLMO/CBTmin 终点），所以三餐
     只用于规律进食与避免过晚进食，不当作相位杠杆宣传。
-  * 步长"先快后缓"：前段上限 60 分钟，中段 45，后段 30，最后几天 15；实际步长
-    = min(该段上限, 剩余偏移 ÷ 剩余天数)，最后一天精确落到目标；若所需日均超过
-    60 分钟则给出"计划天数偏短"的温和提示（可"不再提示"）。
+  * 步长由「总偏移 D ÷ 天数 N」现场生成的连续函数决定：s_i ∝ 1 + α(1-u)^p
+    （u=(i-1)/(N-1)，α=0.6、p=1），先快后慢、末日仍以约 62% 的首日速度移动，
+    首日只有日均的 (1+α)/(1+α/2)≈1.23 倍（前期不陡），且 s_last/s_first 与 N、D
+    无关；每天 60 分钟只是"提示阈值"——超过它就在提示里写清最后一天要挪多少分钟，
+    不阻止生成，也不会把差额堆到某一天（旧实现把走不完的部分全压到最后一天）。
 """
 from __future__ import annotations
 
@@ -60,11 +62,13 @@ MIN_MEAL_GAP = 120                       # 保序：午餐与晚餐之间至少�
 # --------------------------------------------------------------------------- #
 # 相位步长
 # --------------------------------------------------------------------------- #
-STEP_CAP_ADVANCE = 45        # 前移每天上限（前移比后移难）
-STEP_CAP_DELAY = 90          # 后移每天上限
-STEP_CAP_HARD = 120          # 单日硬上限（用户设定 15 分钟 ~ 2 小时）
-STEP_MIN = 15                # 单日最小有效步长，小于它的偏移集中在更少的天数里走完
-STEP_CURVE = ((1 / 3, 60), (2 / 3, 45), (0.9, 30), (1.0, 15))     # 先快后缓
+# 曲线不再写死"第几段用几分钟"：由「总偏移 D + 天数 N」现场生成一条连续函数，
+# 保证先快后慢、总和精确等于 D、末日仍有速度，最大一步只有日均的约 1.23 倍。
+STEP_SHAPE_ALPHA = 0.6       # 首日比末日快多少：s_last / s_first = 1 / (1 + alpha)
+STEP_SHAPE_POWER = 1.0       # 递减分布：1.0 = 每天等量递减（开始最平缓）
+STEP_CAP_ADVANCE = 60        # 前移每天的"提示阈值"（不是硬约束，出处见模块文档）
+STEP_CAP_DELAY = 60          # 后移每天的"提示阈值"（同上）
+STEP_CAP_HARD = 120          # 单日输入上限（用户设定 15 分钟 ~ 2 小时）
 SHORT_PLAN_DAILY_THRESHOLD = 60      # 所需日均超过它就提示"天数偏短"
 
 # --------------------------------------------------------------------------- #
@@ -304,94 +308,62 @@ def _system_target(basis: dict) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# 步长：先快后缓 + 前后移不对称
+# 步长：由「总偏移 ÷ 天数」现场生成（先快后慢，尾部保留速度）
 # --------------------------------------------------------------------------- #
-def _step_caps(days: int, direction: int) -> list[int]:
-    """每天的步长上限：前段大、后段小（direction<0 前移，>0 后移）。"""
-    ceiling = STEP_CAP_ADVANCE if direction < 0 else STEP_CAP_DELAY
-    caps: list[int] = []
-    for index in range(max(1, days)):
-        progress = (index + 1) / max(1, days)
-        cap = STEP_CURVE[-1][1]
-        for boundary, value in STEP_CURVE:
-            if progress <= boundary + 1e-9:
-                cap = value
-                break
-        caps.append(max(STEP_MIN, min(cap, ceiling, STEP_CAP_HARD)))
-    return caps
+def step_cap(direction: int) -> int:
+    """每天的"提示阈值"（不是硬约束）：超过它只提示，不阻止生成计划。"""
+    return STEP_CAP_ADVANCE if direction < 0 else STEP_CAP_DELAY
 
 
-def _step_magnitudes(span: int, days: int, direction: int) -> tuple[list[int], bool]:
-    """把总偏移量 span 分摊到 days 天：先快后缓、每天不超过当天上限、总和精确等于 span。
+def _shape_steps(span: int, days: int) -> list[int]:
+    """把 span 分摊到 days 天：φ(u) = 1 + α·(1-u)^p，u = (i-1)/(N-1)。
 
-    曲线用 min(当天上限, λ·递减权重) 表示：λ 越大整体越大，用二分求到总和为 span，
-    这样既保持"前期步长大、后期步长小"，又不会顶穿任何一天的上限。
+    性质（与天数、总跨度无关，所以天数变多曲线也不会变陡）：
+      * sum(steps) == span，最后一天仍在移动；
+      * steps 单调不增（先快后慢）；
+      * steps[-1] / steps[0] == 1 / (1 + α)：末日保留首日的 1/(1+α) 速度；
+      * steps[0] / 日均 == (1+α) / (1+α/2) ≈ 1.23：首日只比日均快两成，前期不陡。
+    累计取整，避免每项四舍五入后总和跑偏。
     """
     span = abs(int(span))
     days = max(1, int(days))
-    caps = _step_caps(days, direction)
     if span == 0:
-        return [0] * days, True
+        return [0] * days
     if days == 1:
-        return [span], span <= caps[0]
+        return [span]
 
-    feasible = span <= sum(caps)
-    weights = [days - index for index in range(days)]      # 递减权重：先快后缓
-
-    if feasible:
-        low, high = 0.0, float(max(caps))
-        for _ in range(60):
-            mid = (low + high) / 2
-            total = sum(min(float(caps[i]), mid * weights[i]) for i in range(days))
-            if total < span:
-                low = mid
-            else:
-                high = mid
-        raw = [min(float(caps[i]), high * weights[i]) for i in range(days)]
-    else:                                                   # 不可行：先顶满上限，差额最后补
-        raw = [float(cap) for cap in caps]
-
+    weights = [
+        1.0 + STEP_SHAPE_ALPHA * (1.0 - index / (days - 1)) ** STEP_SHAPE_POWER
+        for index in range(days)
+    ]
+    total = sum(weights)
     steps: list[int] = []
-    running = 0.0
     placed = 0
-    for value in raw:                                       # 累计取整，尽量贴近原比例
-        running += value
-        cumulative = int(round(running))
-        steps.append(max(0, cumulative - placed))
+    for index, weight in enumerate(weights):
+        cumulative = int(round(span * sum(weights[: index + 1]) / total))
+        steps.append(cumulative - placed)
         placed = cumulative
 
-    for index in range(days - 1, 0, -1):                    # 取整后压平：保证单调不增
-        if steps[index] <= steps[index - 1]:
-            continue
-        excess = steps[index] - steps[index - 1]
-        steps[index] = steps[index - 1]
-        for back in range(index - 1, -1, -1):
-            room = caps[back] - steps[back]
-            take = min(room, excess)
-            if take > 0:
-                steps[back] += take
-                excess -= take
-            if excess <= 0:
-                break
-        if excess > 0:
-            steps[index] += excess
+    for index in range(days - 1, 0, -1):          # 取整可能让后一天多 1 分钟：向前借平
+        if steps[index] > steps[index - 1]:
+            excess = steps[index] - steps[index - 1]
+            steps[index] -= excess
+            steps[index - 1] += excess
+    return steps
 
-    delta = span - sum(steps)                               # 零头补给最早还有余量的天
-    index = 0
-    while delta > 0 and index < days:
-        take = min(caps[index] - steps[index], delta)
-        steps[index] += take
-        delta -= take
-        index += 1
-    if delta > 0:                                           # 天数不足时把走不完的部分留到最后一天
-        steps[-1] += delta
-    index = days - 1
-    while delta < 0 and index >= 0:                         # 走多了从最后一天往前扣
-        take = min(steps[index], -delta)
-        steps[index] -= take
-        delta += take
-        index -= 1
-    return steps, feasible
+
+def _step_magnitudes(span: int, days: int, direction: int) -> tuple[list[int], bool]:
+    """每天的步长，以及「是否每一天都落在提示阈值内」。
+
+    形状函数保证总和精确等于 span、末日仍在移动，因此不再需要"先顶满上限、再把
+    差额压到最后一天"（旧实现会让末日突然挪 150 分钟）。feasible 只表示某一步
+    超过阈值，用于提示，不改变生成的计划。
+    """
+    span = abs(int(span))
+    days = max(1, int(days))
+    steps = _shape_steps(span, days)
+    cap = step_cap(direction)
+    return steps, (max(steps) <= cap if steps else True)
 
 
 def _cumulative_magnitudes(span: int, days: int, direction: int) -> tuple[list[int], bool]:
@@ -406,12 +378,13 @@ def _cumulative_magnitudes(span: int, days: int, direction: int) -> tuple[list[i
 
 
 def suggested_days(span: int, direction: int, *, limit: int = 90) -> int:
-    """在每天上限的约束下走完 span 至少需要多少天（供"建议增加天数"提示）。"""
+    """要让最大的一步落进提示阈值，至少需要多少天（只用于提示，不阻止生成）。"""
     span = abs(int(span))
     if span == 0:
         return 1
+    cap = step_cap(direction)
     for days in range(1, limit + 1):
-        if span <= sum(_step_caps(days, direction)):
+        if max(_shape_steps(span, days)) <= cap:
             return days
     return limit
 
@@ -423,28 +396,25 @@ def _plan_steps(total_sleep: int, total_wake: int, days: int, mode: str) -> dict
     total_wake = int(total_wake)
     dominant = total_sleep if abs(total_sleep) >= abs(total_wake) else total_wake
     direction = -1 if dominant < 0 else 1
+    cap = step_cap(direction)
 
     if mode == "fast" or days == 1:
         return {
             "cumulative": [(total_sleep, total_wake)],
-            "feasible": abs(dominant) <= STEP_CAP_HARD,
+            "feasible": abs(dominant) <= cap,
             "suggested_days": suggested_days(dominant, direction),
             "direction": direction,
-            "caps": [STEP_CAP_HARD],
             "daily_average": abs(dominant),
-            "compact_days": 1,
-            # 只有一天，全天就是最后一天的步长：提示里要报的数字
+            # 只有一天：首日、末日、最大一步都是全天
             "last_step_minutes": abs(dominant),
+            "max_step_minutes": abs(dominant),
+            "first_step_minutes": abs(dominant),
         }
 
-    # 偏移很小（日均不足 15 分钟）时集中在更少的天数里走完，其余天保持目标
-    compact_days = min(days, max(1, -(-abs(dominant) // STEP_MIN))) if dominant else 1
-    shape_days = max(1, compact_days)
-    magnitudes, feasible = _cumulative_magnitudes(dominant, shape_days, direction)
-    magnitudes = magnitudes + [magnitudes[-1]] * (days - shape_days)
+    magnitudes, feasible = _cumulative_magnitudes(dominant, days, direction)
 
     cumulative: list[tuple[int, int]] = []
-    for index, magnitude in enumerate(magnitudes):
+    for magnitude in magnitudes:
         if dominant == 0:
             cumulative.append((0, 0))
             continue
@@ -462,12 +432,13 @@ def _plan_steps(total_sleep: int, total_wake: int, days: int, mode: str) -> dict
         "feasible": bool(feasible),
         "suggested_days": suggested_days(dominant, direction),
         "direction": direction,
-        "caps": _step_caps(shape_days, direction),
         "daily_average": int(round(abs(dominant) / days)),
-        "compact_days": compact_days,
-        # 最后一天的步长（入睡那条腿，与日卡上"今天移动 N 分钟"同一个数）：
-        # 天数不够时差额全压在这一天，提示文案要把它写出来，别只说"剩下的再慢慢来"
+        # 形状函数对每一天直接给步长，不再有"小偏移集中到少数几天"的压缩
+        # 最后一天的步长（入睡那条腿，与日卡上"今天移动 N 分钟"同一个数）
         "last_step_minutes": int(daily[-1]) if daily else 0,
+        # 最大一步：形状函数下它总在开头，提示里报的是这个数
+        "max_step_minutes": max(daily) if daily else 0,
+        "first_step_minutes": int(daily[0]) if daily else 0,
     }
 
 
@@ -716,7 +687,8 @@ def _notices(
     daily_average: int,
     feasible: bool,
     suggested: int,
-    last_step: int,
+    max_step: int,
+    cap: int,
     acked: set[str],
     lunch_shift: int,
     skipped_streak: int,
@@ -757,8 +729,9 @@ def _notices(
             ackable=True,
             days=days,
             suggested_days=suggested,
-            # 天数不够时差额压到最后一天，提示里直接给出那天的步长
-            step=last_step,
+            # 曲线由函数决定，最大的一步出现在开头：提示直接报「最大一步」与阈值
+            step=max_step,
+            cap=cap,
         )
     if skipped_streak > 0 and lunch_shift > 0:
         add(
@@ -898,7 +871,8 @@ def build_advice(
         daily_average=steps["daily_average"],
         feasible=steps["feasible"],
         suggested=steps["suggested_days"],
-        last_step=steps["last_step_minutes"],
+        max_step=steps["max_step_minutes"],
+        cap=step_cap(direction),
         acked=acked,
         lunch_shift=shift,
         skipped_streak=streak,
@@ -939,17 +913,21 @@ def build_advice(
         },
         "steps": {
             "direction": "advance" if direction < 0 else "delay",
-            "cap_advance_minutes": STEP_CAP_ADVANCE,
-            "cap_delay_minutes": STEP_CAP_DELAY,
+            # 每日建议步长（前移/后移同一个阈值）：只用于提示，不会截断计划
+            "cap_minutes": step_cap(direction),
             "hard_cap_minutes": STEP_CAP_HARD,
             "daily_average_minutes": steps["daily_average"],
-            "curve": steps["caps"],
-            "curve_minutes": [60, 45, 30, 15],
-            "compact_days": steps["compact_days"],
+            # 曲线由形状函数现场生成：只报形状参数与首 / 最大 / 收尾三天的实际步长，
+            # 每天具体多少分钟看 plan[*].step_minutes（不再返回固定分段表）
+            "shape": {
+                "alpha": STEP_SHAPE_ALPHA,
+                "power": STEP_SHAPE_POWER,
+            },
+            "first_step_minutes": steps["first_step_minutes"],
+            "max_step_minutes": steps["max_step_minutes"],
+            "last_step_minutes": steps["last_step_minutes"],
             "feasible": steps["feasible"],
             "suggested_days": steps["suggested_days"],
-            # 最后一天的步长：不可行时它就是"超出当天上限"的那一天
-            "last_step_minutes": steps["last_step_minutes"],
         },
         "meal_plan": {
             "breakfast_skipped_streak": streak,
@@ -1093,12 +1071,12 @@ __all__ = [
     "DEVIATION_OK",
     "DEVIATION_ASK",
     "HIT_TOLERANCE",
+    "STEP_SHAPE_ALPHA",
+    "STEP_SHAPE_POWER",
     "STEP_CAP_ADVANCE",
     "STEP_CAP_DELAY",
     "STEP_CAP_HARD",
-    "STEP_MIN",
     "SHORT_PLAN_DAILY_THRESHOLD",
-    "STEP_CURVE",
     "DEFAULT_SLOW_DAYS",
     "build_advice",
     "day_for",
@@ -1111,4 +1089,5 @@ __all__ = [
     "refused_breakfast_today",
     "lunch_shift_minutes",
     "suggested_days",
+    "step_cap",
 ]

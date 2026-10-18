@@ -236,6 +236,20 @@ if (-not $SkipBrowser) {
                     Check "[$mode] tips fold probe returned geometry" $false "tips_fold missing from the render summary"
                 }
             }
+            # 步长卡（新曲线）：不再展示固定分段 60/45/30/15，改成"每日建议阈值 + 首 / 最大 / 收尾
+            # 三天的实际步长"，并且那三天是递减的（先快后缓）。钩子是 data-steps-*，不看中文文案。
+            $sc = $json.steps_card
+            if ($adviceModes -contains $mode) {
+                if ($sc) {
+                    $shape = @($sc.shape | ForEach-Object { [int]$_ })
+                    $shapeOk = ($shape.Count -eq 3) -and ($shape[0] -gt 0) -and ($shape[0] -ge $shape[1]) -and ($shape[1] -ge $shape[2]) -and ($shape[2] -gt 0)
+                    Check "[$mode] the step card shows the daily hint" (([int]$sc.present -eq 1) -and ([int]$sc.cap -gt 0)) ("present=" + $sc.present + " cap=" + $sc.cap)
+                    Check "[$mode] the step card shows first / max / last" $shapeOk ("shape=" + ($shape -join "/"))
+                    Check "[$mode] the fixed curve chips are gone" ([int]$sc.has_legacy_curve -eq 0) ("legacy=" + $sc.has_legacy_curve)
+                } else {
+                    Check "[$mode] step card probe returned data" $false "steps_card missing from the render summary"
+                }
+            }
             # 现实作息窗口（用户需求）：探针作息（00:30 睡 / 08:30 起，目标 23:00/07:00）全程正常，
             # 所以计划里每一行的午餐都要落在 11:00–15:00、晚餐落在 17:00–22:00。
             # 作息越界的用例不在这里断言（那时算法会回落到相对锚点，出窗才是对的）。
