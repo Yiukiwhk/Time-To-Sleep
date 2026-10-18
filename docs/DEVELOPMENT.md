@@ -197,6 +197,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
     参考线，曲线在它上方就说明前几天走得比平均快。探针按 `data-curve-card` / `data-curve-point` /
     `data-curve-line` 把点数、首末累计、各天步长之和、是否单调、路径是否为平滑曲线、有没有参考线收进
     `curve_chart`，各档断言：点数 == 日卡数、末点 == 各天步长之和、单调不减、路径是 `M…C…`、参考线存在。
+    第二轮又加了四件事，同样只认 `data-*` 钩子：阈值极限线（`data-curve-cap`，标记 `data-curve-cap-mark`）、
+    点选气泡（`data-curve-bubble`，点一次开、再点一次关、点页面别处也关）、联动高亮（点第 k 天 →
+    `.day-card` 第 k 张加 `is-linked` 并滚进视野）、天数预览（拖 `#days-range` → 卡片带
+    `data-curve-preview` 与“预览”角标，点数 = 新天数，松手前不写库）。探针把 `cap_line` / `cap_mark` /
+    `cap_expected` / `tap_open` / `tap_len` / `tap_inside` / `tap_closed` / `linked` / `linked_first` /
+    `preview_points` / `preview_days` / `preview_badge` / `preview_restored` / `selfcheck` 一并回传，
+    各档断言：极限线存在、标记“该有才有”、`selfcheck == ok`（JS 版公式与后端一致）、气泡开合各一次且不出容器、
+    联动到第一张日卡、预览点数 == 预览天数且改回后复原。
 
 ## 前端开发硬约束
 

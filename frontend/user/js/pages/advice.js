@@ -341,12 +341,63 @@ function adherenceCardHtml(data) {
 
 /* ------------------------------ 步长曲线 ------------------------------ */
 
+/** 后端那套分摊算法的 JS 版：φ(u) = 1 + α·(1-u)^p，先按权重算「累计」再取整，
+ *  最后把「后一天比前一天大」的取整误差向前借平。拖动天数时用它现场预览，不发请求。 */
+function shapeSteps(span, days, alpha, power) {
+  const total = Math.abs(Math.round(Number(span) || 0));
+  const count = Math.max(1, Math.floor(Number(days) || 1));
+  if (total === 0) return new Array(count).fill(0);
+  if (count === 1) return [total];
+  const shapeAlpha = Number.isFinite(alpha) && alpha >= 0 ? alpha : 0.6;
+  const shapePower = Number.isFinite(power) && power > 0 ? power : 1;
+  const weights = [];
+  let sum = 0;
+  for (let i = 0; i < count; i += 1) {
+    const weight = 1 + shapeAlpha * Math.pow(1 - i / (count - 1), shapePower);
+    weights.push(weight);
+    sum += weight;
+  }
+  // Python 的 round() 是「四舍六入五成双」，这里照抄，否则边界值会和后端差 1 分钟
+  const roundHalfEven = (value) => {
+    const floor = Math.floor(value);
+    if (Math.abs(value - floor - 0.5) > 1e-9) return Math.round(value);
+    return floor % 2 === 0 ? floor : floor + 1;
+  };
+  const steps = [];
+  let placed = 0;
+  let prefix = 0;
+  for (let i = 0; i < count; i += 1) {
+    prefix += weights[i];
+    const cumulative = i === count - 1 ? total : roundHalfEven((total * prefix) / sum);
+    steps.push(cumulative - placed);
+    placed = cumulative;
+  }
+  for (let i = count - 1; i > 0; i -= 1) {
+    if (steps[i] > steps[i - 1]) {
+      const excess = steps[i] - steps[i - 1];
+      steps[i] -= excess;
+      steps[i - 1] += excess;
+    }
+  }
+  return steps;
+}
+
 /** 逐日累计：第 i 天“到那天为止一共移动了多少分钟”。日卡上的 step_minutes 就是当天步长，
  *  加总就还原出累计曲线——所以这张图不需要后端多返回字段，加固前的老快照也能画。 */
 function cumulativeSteps(data = {}) {
   let sum = 0;
   return planDays(data).map((day, index) => {
     const step = Number(day?.step_minutes) || 0;
+    sum += step;
+    return { day: index + 1, step, total: sum };
+  });
+}
+
+/** 预览曲线：总偏移不变、天数换成滑块的值，用同一套形状函数现算（纯前端，不写库）。 */
+function previewSteps(total, days, shape = {}) {
+  const steps = shapeSteps(total, days, shape.alpha, shape.power);
+  let sum = 0;
+  return steps.map((step, index) => {
     sum += step;
     return { day: index + 1, step, total: sum };
   });
@@ -386,38 +437,83 @@ function smoothPath(points = []) {
 }
 
 /** 累计步长曲线：横轴天数、纵轴“到那天为止已移动的分钟数”。
- *  灰色虚线是“均匀速度”参考线——曲线在它上方 = 前几天走得比平均快（先快后缓）。
- *  某天的步长超过每日建议阈值时，那天的点变暖色（阈值只做提示，不截断计划）。 */
-function curveCardHtml(data) {
+ *  - 灰虚线（平均速度）：曲线在它上方 = 前几天走得比平均快，这就是「先快后缓」；
+ *  - 点线（每天顶到阈值）：和顶边相交的那一格，就是「按上限速度第几天能到目标」；
+ *  - 某天步长超过阈值时那天的点变暖色（阈值只提示，不截断计划）；
+ *  - 点某天 → 气泡显示数字，并（非预览时）高亮、滚到对应日卡；
+ *  - options.days 与方案天数不同时画「预览」曲线（拖动天数滑块即触发，不写库）。 */
+function curveCardHtml(data, options = {}) {
   const steps = data?.plan?.steps;
-  const points = cumulativeSteps(data);
-  const days = points.length;
-  const total = days ? points[days - 1].total : 0;
+  const base = cumulativeSteps(data);
+  const days = base.length;
+  const total = days ? base[days - 1].total : 0;
   if (!steps || days === 0 || total <= 0) return "";
   const cap = capOfSteps(steps);
+  const shape = steps.shape || {};
+  const wanted = Math.max(0, Math.floor(Number(options.days) || 0));
+  const preview = wanted > 0 && wanted !== days;
+  const points = preview ? previewSteps(total, wanted, shape) : base;
+  const shown = points.length;
+  if (!shown) return "";
+  const shownTotal = points[shown - 1].total || total;
+  // 自检：用同一套公式重算本方案的天数，应与日卡 step_minutes 逐项吻合（允许 ±1 取整差）。
+  // 一旦有人改了后端形状函数却忘了改这里，探针会立刻发现「漂移」。
+  const modelled = preview ? [] : shapeSteps(shownTotal, days, shape.alpha, shape.power);
+  let selfcheck = "skip";
+  if (!preview && modelled.length === days) {
+    selfcheck = modelled.every(
+      (value, index) => Math.abs(value - (Number(base[index].step) || 0)) <= 1
+    )
+      ? "ok"
+      : "mismatch";
+  }
   // 窄屏换一套更小的 viewBox：SVG 是等比缩放的，用户单位里的 11px 字在 390px 宽的屏上会被
   // 缩到 6px 左右；直接把坐标系缩小，字相对就大了，读起来才不费劲。
   const narrow = typeof window !== "undefined" && window.innerWidth > 0 && window.innerWidth < 560;
-  const width = narrow ? 360 : 640;
-  const height = narrow ? 200 : 210;
+  const width = narrow ? 360 : 720;
+  const height = narrow ? 200 : 260;
   const pad = narrow
-    ? { left: 44, right: 14, top: 14, bottom: 32 }
-    : { left: 52, right: 20, top: 16, bottom: 34 };
+    ? { left: 44, right: 14, top: 22, bottom: 32 }
+    : { left: 52, right: 20, top: 24, bottom: 34 };
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
   const bottom = pad.top + innerH;
-  const xOf = (index) => (days === 1 ? pad.left + innerW / 2 : pad.left + (index / (days - 1)) * innerW);
-  const yOf = (value) => pad.top + innerH - (value / total) * innerH;
+  const xOf = (index) =>
+    shown === 1 ? pad.left + innerW / 2 : pad.left + (index / (shown - 1)) * innerW;
+  const yOf = (value) => pad.top + innerH - (value / shownTotal) * innerH;
   const coords = points.map((point, index) => ({ x: xOf(index), y: yOf(point.total) }));
   const line = smoothPath(coords);
-  const area = `${line} L ${coords[days - 1].x.toFixed(2)} ${bottom.toFixed(2)}`
+  const area = `${line} L ${coords[shown - 1].x.toFixed(2)} ${bottom.toFixed(2)}`
     + ` L ${coords[0].x.toFixed(2)} ${bottom.toFixed(2)} Z`;
   const evenPace = `M ${coords[0].x.toFixed(2)} ${bottom.toFixed(2)}`
-    + ` L ${coords[days - 1].x.toFixed(2)} ${yOf(total).toFixed(2)}`;
-  const columnW = days > 1 ? innerW / (days - 1) : innerW;
-  const avg = Math.round(total / days);
+    + ` L ${coords[shown - 1].x.toFixed(2)} ${yOf(shownTotal).toFixed(2)}`;
+  const columnW = shown > 1 ? innerW / (shown - 1) : innerW;
+  const avg = Math.round(shownTotal / shown);
 
-  const yTicks = [0, Math.round(total / 2), total]
+  // 「每天顶到阈值」的极限线：从原点按 cap 的斜率往上，裁到画布内。它和顶边（=目标）
+  // 的交点就是 capDay —— 按上限速度第几天能到；落在天数之外就不画标记，只留一条线。
+  const capLine = cap > 0 && shown > 1
+    ? `M ${coords[0].x.toFixed(2)} ${bottom.toFixed(2)}`
+      + ` L ${coords[shown - 1].x.toFixed(2)} ${yOf(cap * (shown - 1)).toFixed(2)}`
+    : "";
+  const capDay = cap > 0 ? 1 + shownTotal / cap : 0;
+  const capMarked = cap > 0 && capDay > 1 && capDay <= shown;
+  const capMark = capMarked
+    ? `<circle class="curve-cap-mark" data-curve-cap-mark cx="${xOf(capDay - 1).toFixed(2)}"`
+      + ` cy="${pad.top.toFixed(2)}" r="3.2" />`
+      + `<text class="curve-cap-label" data-curve-cap-label`
+      + ` x="${Math.min(
+        Math.max(xOf(capDay - 1), pad.left + 34),
+        width - pad.right - 34
+      ).toFixed(2)}" y="${(pad.top + 13).toFixed(2)}" text-anchor="middle">${escapeHtml(
+        tp("advice.curve.capLine", {
+          cap,
+          day: Number.isInteger(capDay) ? String(capDay) : capDay.toFixed(1),
+        })
+      )}</text>`
+    : "";
+
+  const yTicks = [0, Math.round(shownTotal / 2), shownTotal]
     .map((value) => {
       const y = yOf(value);
       return `<line class="curve-grid-line" x1="${pad.left}" x2="${(width - pad.right).toFixed(2)}"`
@@ -427,10 +523,10 @@ function curveCardHtml(data) {
     })
     .join("");
 
-  const labelEvery = Math.max(1, Math.ceil(days / (narrow ? 5 : 8)));
+  const labelEvery = Math.max(1, Math.ceil(shown / (narrow ? 5 : 8)));
   const xLabels = points
     .map((point, index) => {
-      const isEdge = index === 0 || index === days - 1;
+      const isEdge = index === 0 || index === shown - 1;
       if (!isEdge && (index + 1) % labelEvery !== 0) return "";
       return `<text class="curve-axis-text" x="${coords[index].x.toFixed(2)}"`
         + ` y="${(bottom + 18).toFixed(2)}" text-anchor="middle">${point.day}</text>`;
@@ -440,13 +536,15 @@ function curveCardHtml(data) {
   const dots = points
     .map((point, index) => {
       const over = cap > 0 && point.step > cap;
-      let title = tp("advice.curve.point", { day: point.day, total: point.total, step: point.step });
-      if (over) title += ` · ${tp("advice.curve.overCap", { step: point.step, cap })}`;
-      if (index === days - 1) title += ` · ${tp("advice.curve.reached", { days })}`;
-      const radius = index === days - 1 ? 4.6 : 3.4;
+      let tip = tp("advice.curve.point", { day: point.day, total: point.total, step: point.step });
+      if (over) tip += ` · ${tp("advice.curve.overCap", { step: point.step, cap })}`;
+      if (index === shown - 1) tip += ` · ${tp("advice.curve.reached", { days: shown })}`;
+      const radius = index === shown - 1 ? 4.6 : 3.4;
       return `<g class="curve-point" data-curve-point data-day="${point.day}"`
-        + ` data-step="${point.step}" data-total="${point.total}">`
-        + `<title>${escapeHtml(title)}</title>`
+        + ` data-step="${point.step}" data-total="${point.total}"`
+        + ` data-tip="${escapeHtml(tip)}" tabindex="0" role="button"`
+        + ` aria-label="${escapeHtml(tip)}">`
+        + `<title>${escapeHtml(tip)}</title>`
         + `<rect class="curve-hit" x="${(coords[index].x - columnW / 2).toFixed(2)}" y="${pad.top}"`
         + ` width="${columnW.toFixed(2)}" height="${innerH}" />`
         + `<circle class="${over ? "curve-dot is-over" : "curve-dot"}"`
@@ -455,16 +553,27 @@ function curveCardHtml(data) {
     })
     .join("");
 
+  const caption = preview
+    ? tp("advice.curve.captionPreview", { days: shown, total: shownTotal, avg })
+    : tp("advice.curve.caption", { days: shown, total: shownTotal, avg });
+
   return `
-    <section class="card stack" data-curve-card style="gap:10px">
+    <section class="card stack" data-curve-card style="gap:10px"${preview ? ' data-curve-preview="1"' : ""}
+      data-curve-selfcheck="${selfcheck}">
       <div class="row-wrap">
         <h2 style="margin:0">${escapeHtml(t("advice.curve.title"))}</h2>
+        ${preview ? `<span class="curve-badge" data-curve-badge>${escapeHtml(t("advice.curve.preview"))}</span>` : ""}
         <span class="grow"></span>
-        <span class="tiny muted">${escapeHtml(
-          tp("advice.curve.caption", { days, total, avg })
-        )}</span>
+        <span class="tiny muted">${escapeHtml(caption)}</span>
       </div>
-      <div class="curve-wrap">
+      ${
+        preview
+          ? `<p class="tiny muted" style="margin:0" data-curve-preview-hint>${escapeHtml(
+            t("advice.curve.previewHint")
+          )}</p>`
+          : ""
+      }
+      <div class="curve-wrap" data-curve-wrap>
         <svg class="curve-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(
           t("advice.curve.title")
         )}">
@@ -473,24 +582,146 @@ function curveCardHtml(data) {
               <stop class="curve-fill-top" offset="0" />
               <stop class="curve-fill-bottom" offset="1" />
             </linearGradient>
+            <clipPath id="curve-clip">
+              <rect x="${pad.left}" y="${pad.top}" width="${innerW.toFixed(2)}" height="${innerH.toFixed(2)}" />
+            </clipPath>
           </defs>
           <g class="curve-grid">${yTicks}</g>
           <path class="curve-area" d="${area}" />
           <path class="curve-avg" d="${evenPace}" />
+          ${capLine ? `<path class="curve-cap" data-curve-cap d="${capLine}" clip-path="url(#curve-clip)" />` : ""}
           <path class="curve-line" data-curve-line d="${line}" />
           ${dots}
+          ${capMark}
           ${xLabels}
           <text class="curve-axis-text" x="${(width - pad.right).toFixed(2)}" y="${height - 6}"
             text-anchor="end">${escapeHtml(t("advice.curve.axisDays"))}</text>
-          <text class="curve-axis-text" x="${pad.left}" y="${(pad.top - 4).toFixed(2)}"
+          <text class="curve-axis-text" x="${pad.left}" y="${(pad.top - 8).toFixed(2)}"
             text-anchor="start">${escapeHtml(t("advice.curve.axisMinutes"))}</text>
         </svg>
+        <div class="curve-bubble" data-curve-bubble hidden></div>
       </div>
       <div class="curve-legend">
         <span><i class="curve-key"></i>${escapeHtml(t("advice.curve.legendCurve"))}</span>
         <span><i class="curve-key is-avg"></i>${escapeHtml(t("advice.curve.legendAvg"))}</span>
+        ${
+          capLine
+            ? `<span><i class="curve-key is-cap"></i>${escapeHtml(
+              tp("advice.curve.legendCap", { cap })
+            )}</span>`
+            : ""
+        }
       </div>
     </section>`;
+}
+
+/** 点某天：气泡显示当天数字；非预览时再高亮并滚到那条日卡（预览的天数和日卡对不上，就不跳）。 */
+let curveLinkTimer = 0;
+
+function bindCurveCard(root) {
+  const card = qs("[data-curve-card]", root);
+  if (!card || card.dataset.curveBound === "1") return;
+  card.dataset.curveBound = "1";
+  const wrap = qs("[data-curve-wrap]", card);
+  const bubble = qs("[data-curve-bubble]", card);
+  let openPoint = null;
+  const linked = () => Array.from(root.querySelectorAll(".day-card.is-linked"));
+
+  const hideBubble = () => {
+    if (bubble) {
+      bubble.hidden = true;
+      bubble.classList.remove("is-open");
+    }
+    if (openPoint) openPoint.classList.remove("is-active");
+    openPoint = null;
+    document.removeEventListener("click", onOutside, true);
+  };
+  function onOutside(event) {
+    if (!card.contains(event.target)) hideBubble();
+  }
+
+  const showBubble = (point) => {
+    if (!bubble || !wrap) return;
+    const text = point.dataset.tip || "";
+    if (!text) return;
+    bubble.textContent = text;
+    bubble.hidden = false;
+    bubble.classList.add("is-open");
+    const wrapRect = wrap.getBoundingClientRect();
+    const dot = point.querySelector(".curve-dot") || point;
+    const dotRect = dot.getBoundingClientRect();
+    const half = (bubble.offsetWidth || 0) / 2;
+    const rawLeft = dotRect.left - wrapRect.left + dotRect.width / 2;
+    const limit = Math.max(half + 4, wrapRect.width - half - 4);
+    bubble.style.left = `${Math.min(Math.max(rawLeft, half + 4), limit).toFixed(1)}px`;
+    bubble.style.top = `${Math.max(dotRect.top - wrapRect.top - 8, (bubble.offsetHeight || 0) + 4).toFixed(1)}px`;
+    point.classList.add("is-active");
+    openPoint = point;
+    document.addEventListener("click", onOutside, true);
+  };
+
+  const toggle = (point) => {
+    if (openPoint === point) {
+      hideBubble();
+      return;
+    }
+    hideBubble();
+    showBubble(point);
+    if (card.dataset.curvePreview === "1") return;
+    const index = Number(point.dataset.day) - 1;
+    const cards = Array.from(root.querySelectorAll(".day-card"));
+    const target = cards[index];
+    if (!target) return;
+    linked().forEach((node) => node.classList.remove("is-linked"));
+    target.classList.add("is-linked");
+    target.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (curveLinkTimer) window.clearTimeout(curveLinkTimer);
+    curveLinkTimer = window.setTimeout(() => target.classList.remove("is-linked"), 2200);
+  };
+
+  card.addEventListener("click", (event) => {
+    const point = event.target.closest ? event.target.closest("[data-curve-point]") : null;
+    if (!point || !card.contains(point)) return;
+    event.preventDefault();
+    toggle(point);
+  });
+  card.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const point = event.target.closest ? event.target.closest("[data-curve-point]") : null;
+    if (!point) return;
+    event.preventDefault();
+    toggle(point);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideBubble();
+  });
+}
+
+/** 天数滑块一动就换一条预览曲线：只替换这张卡，不重绘整页、不丢滚动位置、不发请求。 */
+function refreshCurvePreview(root) {
+  const state = view.state;
+  if (!state?.plan) return;
+  const card = qs("[data-curve-card]", root);
+  if (!card) return;
+  const planned = planDays(state.plan).length;
+  const days = view.form.mode === "fast" ? 0 : Number(view.form.days) || 0;
+  const wanted = days > 0 && days !== planned ? days : 0;
+  const holder = document.createElement("template");
+  holder.innerHTML = String(curveCardHtml(state, { days: wanted })).trim();
+  const next = holder.content.firstElementChild;
+  if (!next) return;
+  card.replaceWith(next);
+  bindCurveCard(root);
+}
+
+let curvePreviewTimer = 0;
+
+function scheduleCurvePreview(root) {
+  if (curvePreviewTimer) window.clearTimeout(curvePreviewTimer);
+  curvePreviewTimer = window.setTimeout(() => {
+    curvePreviewTimer = 0;
+    refreshCurvePreview(root);
+  }, 90);
 }
 
 /* ------------------------------ 每日方案 ------------------------------ */
@@ -741,6 +972,7 @@ function renderPlanView(root) {
 
   mountTimelines(root, data);
   bindPlanActions(root);
+  bindCurveCard(root);
 }
 
 /** 时间图必须在插入 DOM 之后再挂载（今天的大图带"现在"标记） */
@@ -968,6 +1200,8 @@ function bindForm(root) {
     view.form.days = Number(event.target.value);
     const value = qs("#days-value", box);
     if (value) value.textContent = t("advice.daysValue", { n: view.form.days });
+    // 拖动即预览：曲线当场按新天数重画（不写库、不刷新页面）
+    scheduleCurvePreview(root);
   });
 
   box.querySelectorAll("[data-days]").forEach((btn) => {
@@ -977,6 +1211,7 @@ function bindForm(root) {
       if (range) range.value = String(view.form.days);
       const value = qs("#days-value", box);
       if (value) value.textContent = t("advice.daysValue", { n: view.form.days });
+      scheduleCurvePreview(root);
     });
   });
 

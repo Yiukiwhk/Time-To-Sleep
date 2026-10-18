@@ -260,6 +260,13 @@ if (-not $SkipBrowser) {
                     Check "[$mode] the curve ends at the summed steps" (([int]$cv.last_total -eq [int]$cv.sum_steps) -and ([int]$cv.last_total -gt 0)) ("last=" + $cv.last_total + " sum=" + $cv.sum_steps)
                     Check "[$mode] the curve never walks backwards" ([int]$cv.monotone -eq 1) ("monotone=" + $cv.monotone)
                     Check "[$mode] the curve is smooth and shows the even pace" (([int]$cv.path_ok -eq 1) -and ([int]$cv.has_avg -eq 1)) ("path_ok=" + $cv.path_ok + " avg=" + $cv.has_avg)
+                    # 第二轮：阈值极限线、曲线自检（与后端同一套公式）、点选气泡、联动高亮、天数预览
+                    Check "[$mode] the daily cap is drawn as a slope line" ([int]$cv.cap_line -eq 1) ("cap_line=" + $cv.cap_line)
+                    Check "[$mode] the cap line meets the target level" ([int]$cv.cap_mark -eq [int]$cv.cap_expected) ("cap_mark=" + $cv.cap_mark + " expected=" + $cv.cap_expected + " label=" + $cv.cap_label)
+                    Check "[$mode] the drawn curve matches the shipped algorithm" ("$($cv.selfcheck)" -eq "ok") ("selfcheck=" + $cv.selfcheck)
+                    Check "[$mode] tapping a day shows its numbers" (([int]$cv.tap_open -eq 1) -and ([int]$cv.tap_len -gt 0) -and ([int]$cv.tap_inside -eq 1) -and ([int]$cv.tap_closed -eq 1)) ("open=" + $cv.tap_open + " len=" + $cv.tap_len + " inside=" + $cv.tap_inside + " closed=" + $cv.tap_closed)
+                    Check "[$mode] tapping a day jumps to that day card" (([int]$cv.linked -eq 1) -and ([int]$cv.linked_first -eq 1)) ("linked=" + $cv.linked + " first=" + $cv.linked_first)
+                    Check "[$mode] the days slider previews the curve" (([int]$cv.preview_points -eq [int]$cv.preview_days) -and ([int]$cv.preview_points -ne [int]$cv.points) -and ([int]$cv.preview_badge -eq 1) -and ([int]$cv.preview_restored -eq [int]$cv.points)) ("preview=" + $cv.preview_points + "/" + $cv.preview_days + " badge=" + $cv.preview_badge + " restored=" + $cv.preview_restored + " real=" + $cv.points)
                 } else {
                     Check "[$mode] step curve probe returned data" $false "curve_chart missing from the render summary"
                 }

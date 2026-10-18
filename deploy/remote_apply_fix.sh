@@ -390,6 +390,18 @@ grep_file "advice.js: smooth path"       "$WEBROOT/user/js/pages/advice.js" 'smo
 grep_file "app.css: curve styles"        "$WEBROOT/user/css/app.css"        '.curve-svg'
 grep_file "i18n.js: curve title"         "$WEBROOT/shared/i18n.js"          'advice.curve.title'
 
+# 4o. The curve now also draws the daily cap slope, shows a tap bubble, jumps to the matching
+# day card and previews a different number of days without a request.  Hooks stay data-*.
+echo "== 4o. the curve can be read day by day and previewed =="
+grep_file "advice.js: cap slope hook"    "$WEBROOT/user/js/pages/advice.js" 'data-curve-cap'
+grep_file "advice.js: tap bubble hook"   "$WEBROOT/user/js/pages/advice.js" 'data-curve-bubble'
+grep_file "advice.js: shared shape math" "$WEBROOT/user/js/pages/advice.js" 'shapeSteps'
+grep_file "advice.js: days preview"      "$WEBROOT/user/js/pages/advice.js" 'scheduleCurvePreview'
+grep_file "app.css: cap line style"      "$WEBROOT/user/css/app.css"        '.curve-cap'
+grep_file "app.css: bubble style"        "$WEBROOT/user/css/app.css"        '.curve-bubble'
+grep_file "i18n.js: cap copy"            "$WEBROOT/shared/i18n.js"          'advice.curve.capLine'
+grep_file "i18n.js: preview copy"        "$WEBROOT/shared/i18n.js"          'advice.curve.captionPreview'
+
 echo
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"

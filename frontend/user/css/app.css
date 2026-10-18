@@ -979,7 +979,7 @@
 
 
 /* --- 步长曲线（建议页：横轴天数 / 纵轴累计移动分钟） --- */
-.curve-wrap { width: 100%; }
+.curve-wrap { position: relative; width: 100%; }
 .curve-svg { display: block; width: 100%; height: auto; overflow: visible; }
 .curve-svg .curve-grid-line { stroke: var(--border); stroke-width: 1; }
 .curve-svg .curve-axis-text { fill: var(--text-soft); font-size: 11px; font-family: inherit; }
@@ -1019,3 +1019,54 @@
     border-top: 2px dashed var(--text-soft);
     height: 0;
 }
+
+.curve-legend .curve-key.is-cap {
+    background: transparent;
+    border-top: 2px dotted var(--text-soft);
+    height: 0;
+}
+.curve-svg .curve-cap {
+    fill: none;
+    stroke: var(--text-soft);
+    stroke-width: 1.4;
+    stroke-dasharray: 2 5;
+    opacity: 0.7;
+}
+.curve-svg .curve-cap-mark {
+    fill: var(--bg-raised);
+    stroke: var(--text-soft);
+    stroke-width: 1.4;
+}
+.curve-svg .curve-cap-label {
+    fill: var(--text-soft);
+    font-size: 11px;
+    font-family: inherit;
+}
+.curve-svg .curve-point { cursor: pointer; outline: none; }
+.curve-svg .curve-point.is-active .curve-dot { stroke: var(--bg); stroke-width: 2; }
+.curve-svg .curve-point:focus-visible .curve-dot { stroke: var(--accent); stroke-width: 2; }
+.curve-bubble {
+    position: absolute;
+    z-index: 3;
+    max-width: 260px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    background: var(--bg-raised);
+    color: var(--text);
+    font-size: 12.5px;
+    line-height: 1.5;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+    transform: translate(-50%, -100%);
+    pointer-events: none;
+}
+.curve-bubble[hidden] { display: none; }
+.curve-bubble.is-open { display: block; }
+.curve-badge {
+    padding: 1px 8px;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    color: var(--accent);
+    font-size: 11.5px;
+}
+.day-card.is-linked { box-shadow: 0 0 0 2px var(--accent); }
