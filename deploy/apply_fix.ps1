@@ -103,6 +103,14 @@ $common = $commonOptions + @("-p", "$Port")
 $scpCommon = $commonOptions + @("-P", "$Port")
 $target = "$User@$Server"
 
+# ------------------------------------------------------- line endings ------
+# A CRLF shell script is fatal on the server: "#!/usr/bin/env bash\r" makes the
+# kernel look for an interpreter called "bash\r", fall back to /bin/sh, and then
+# "set -o pipefail" aborts with "set: pipefail: invalid option name".  Check the
+# bytes before anything is staged or uploaded.
+& (Join-Path $PSScriptRoot "check_eol.ps1") -Dir (Join-Path $root "deploy")
+if ($LASTEXITCODE -ne 0) { throw "shell scripts must be LF-only (see deploy/check_eol.ps1)" }
+
 # ---------------------------------------------------------------- stage ------
 $stage = Join-Path $env:TEMP "sleep-fix-stage"
 if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
