@@ -155,7 +155,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 | `refused` | 1440×1240 | 早餐卡片提供「不想吃」按钮 → 真点提交打卡（`POST /api/advice/checkin`）、晚餐精确提前 60 分钟、午餐不推后（有空间时提前）、按钮进入激活态、点「吃了」撤销后恢复、快速模式说明固定单日并隐藏天数滑块 |
 | `mobile` | 390×900 | 窄屏改用纵向时间图、时间图条 ≥4、无横向溢出 |
 
-每一档都会顺带跑十条“用户看得到”的回归护栏，任何一条不过整体失败：
+每一档都会顺带跑十一条“用户看得到”的回归护栏，任何一条不过整体失败：
 
 1. **没有漏翻的 i18n key**：正文里不允许出现 `advice.* / records.* / common.*` 这类原始 key。
 2. **没有未填充的占位符**：正文里不允许出现 `{streak}` 这种花括号参数（`tp()` 漏传参数的典型症状）。
@@ -205,6 +205,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
     `preview_points` / `preview_days` / `preview_badge` / `preview_restored` / `selfcheck` 一并回传，
     各档断言：极限线存在、标记“该有才有”、`selfcheck == ok`（JS 版公式与后端一致）、气泡开合各一次且不出容器、
     联动到第一张日卡、预览点数 == 预览天数且改回后复原。
+
+11. **首帧别先画错再纠正**：刷新建议页时如果先按“没有方案”画出展开的表单、等数据回来再折叠，
+    用户会看到明显一闪（用户报过）。现在首帧按 `localStorage` 里按用户存的 `ssp.advice.hasPlan:<uid>`
+    决定折叠，数据回来再对账写回；右栏加载中画骨架（`data-advice-skeleton`）而不是一行“加载中”卡。
+    探针在 `first_paint` 里**重载一次 iframe** 专门量第一帧：`first_paint_folded` / `first_paint_expanded`
+    / `skeleton_seen` / `stale_reconciled`，六档断言“回访者首帧就是折叠的”“骨架先顶上”“记忆过时被数据纠正”。
 
 ## 前端开发硬约束
 

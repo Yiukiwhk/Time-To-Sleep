@@ -271,6 +271,20 @@ if (-not $SkipBrowser) {
                     Check "[$mode] step curve probe returned data" $false "curve_chart missing from the render summary"
                 }
             }
+            # 首帧记忆 + 骨架（用户报的"刷新时闪一下"）：记忆按用户写对、回访者首帧不展开、
+            # 骨架先顶上、记忆过时由数据纠正。
+            $fp = $json.first_paint
+            if ($adviceModes -contains $mode) {
+                if ($fp) {
+                    $keyOk = -not [string]::IsNullOrWhiteSpace([string]$fp.key)
+                    Check "[$mode] the plan memory is written for this user" (($keyOk) -and ([int]$fp.memory_written -eq 1)) ("key=" + $fp.key + " written=" + $fp.memory_written)
+                    Check "[$mode] a returning user's first paint already folds the form" (([int]$fp.first_paint_folded -eq 1) -and ([int]$fp.first_paint_expanded -eq 0)) ("folded=" + $fp.first_paint_folded + " expanded=" + $fp.first_paint_expanded)
+                    Check "[$mode] the loading skeleton paints before the data" ([int]$fp.skeleton_seen -eq 1) ("skeleton=" + $fp.skeleton_seen)
+                    Check "[$mode] a stale memory is corrected by the data" ([int]$fp.stale_reconciled -eq 1) ("stale_reconciled=" + $fp.stale_reconciled)
+                } else {
+                    Check "[$mode] first paint probe returned data" $false "first_paint missing from the render summary"
+                }
+            }
             # 现实作息窗口（用户需求）：探针作息（00:30 睡 / 08:30 起，目标 23:00/07:00）全程正常，
             # 所以计划里每一行的午餐都要落在 11:00–15:00、晚餐落在 17:00–22:00。
             # 作息越界的用例不在这里断言（那时算法会回落到相对锚点，出窗才是对的）。

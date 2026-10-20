@@ -414,6 +414,12 @@ grep_absent "advice.js: old silent path gone" "$WEBROOT/user/js/pages/advice.js"
 grep_absent "i18n.js: dead dismiss label"     "$WEBROOT/shared/i18n.js"          'advice.deviation.dismiss'
 
 echo
+echo "== 4q. the first paint already knows whether a plan exists =="
+grep_file "advice.js: plan memory key" "$WEBROOT/user/js/pages/advice.js" 'ssp.advice.hasPlan'
+grep_file "advice.js: skeleton hook" "$WEBROOT/user/js/pages/advice.js" 'data-advice-skeleton'
+grep_file "app.css: skeleton styles" "$WEBROOT/user/css/app.css" '.skeleton-row'
+grep_absent "advice.js: old loader card gone" "$WEBROOT/user/js/pages/advice.js" 'function renderStatus'
+
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"
 else

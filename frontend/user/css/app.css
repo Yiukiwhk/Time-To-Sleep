@@ -677,6 +677,9 @@
 }
 
 /* 折叠态整张卡不显示：展开入口是结果区的「重新生成方案」按钮（syncForm 切这个类） */
+/* 首帧折叠：shell 先按记忆加上 .form-folded，此时 syncForm 还没跑到，
+   由这条规则让表单在第一帧就是收起的（否则会先露一下再收）。 */
+.advice-layout.form-folded > #advice-form,
 #advice-form.form-collapsed { display: none; }
 
 /* ------------------------------ 参考文献弹窗 ------------------------------ */
@@ -1070,3 +1073,45 @@
     font-size: 11.5px;
 }
 .day-card.is-linked { box-shadow: 0 0 0 2px var(--accent); }
+
+/* --- 加载骨架（建议页首帧：形状贴近真内容，减少"加载卡 → 空态"的跳动） --- */
+.skeleton {
+  display: grid;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.skeleton-line,
+.skeleton-block {
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--bg-raised) 0%, var(--border) 50%, var(--bg-raised) 100%);
+  background-size: 220% 100%;
+  animation: ssp-skeleton 1.2s ease-in-out infinite;
+}
+
+.skeleton-line {
+  height: 12px;
+}
+
+.skeleton-block {
+  height: 56px;
+}
+
+.skeleton-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.skeleton-row .skeleton-block {
+  height: 58px;
+}
+
+@keyframes ssp-skeleton {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -40% 0;
+  }
+}
