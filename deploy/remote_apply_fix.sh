@@ -428,6 +428,23 @@ grep_file "main.js: restore snapshot" "$WEBROOT/user/js/main.js" 'readPage(state
 grep_file "main.js: remember snapshot" "$WEBROOT/user/js/main.js" 'writePage(state.user.id, state.route, view.innerHTML)'
 grep_file "main.js: cleared on 401" "$WEBROOT/user/js/main.js" 'clearBootCache();'
 
+echo "== 4s. static assets are compressed and the module graph is preloaded =="
+grep_file "index.html: modulepreload" "$WEBROOT/user/index.html" 'rel="modulepreload"'
+grep_file "vhost: gzip on" "$VHOST" 'gzip on;'
+gz=$(curl -s -m 10 -H 'Accept-Encoding: gzip' -o /dev/null -w '%{size_download}' "http://127.0.0.1/user/js/pages/advice.js" || true)
+raw=$(curl -s -m 10 -H 'Accept-Encoding: identity' -o /dev/null -w '%{size_download}' "http://127.0.0.1/user/js/pages/advice.js" || true)
+if [ -n "$gz" ] && [ -n "$raw" ] && [ "$gz" -lt "$raw" ]; then
+    printf '  ok   %-30s %s < %s bytes\n' "gzip shrinks advice.js" "$gz" "$raw"
+else
+    printf '  FAIL %-30s gz=%s raw=%s\n' "gzip shrinks advice.js" "$gz" "$raw"; fail=$((fail + 1))
+fi
+hdr=$(curl -sI -m 10 -H 'Accept-Encoding: gzip' "http://127.0.0.1/user/js/pages/advice.js" | tr 'A-Z' 'a-z' | grep -c 'content-encoding: gzip' || true)
+if [ "${hdr:-0}" -ge 1 ]; then
+    printf '  ok   %-30s %s\n' "advice.js answers gzip" "content-encoding: gzip"
+else
+    printf '  FAIL %-30s no content-encoding: gzip\n' "advice.js answers gzip"; fail=$((fail + 1))
+fi
+
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"
 else

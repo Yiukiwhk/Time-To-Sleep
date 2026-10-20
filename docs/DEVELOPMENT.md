@@ -155,7 +155,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 | `refused` | 1440×1240 | 早餐卡片提供「不想吃」按钮 → 真点提交打卡（`POST /api/advice/checkin`）、晚餐精确提前 60 分钟、午餐不推后（有空间时提前）、按钮进入激活态、点「吃了」撤销后恢复、快速模式说明固定单日并隐藏天数滑块 |
 | `mobile` | 390×900 | 窄屏改用纵向时间图、时间图条 ≥4、无横向溢出 |
 
-每一档都会顺带跑十二条“用户看得到”的回归护栏，任何一条不过整体失败：
+每一档都会顺带跑十三条“用户看得到”的回归护栏，任何一条不过整体失败：
 
 1. **没有漏翻的 i18n key**：正文里不允许出现 `advice.* / records.* / common.*` 这类原始 key。
 2. **没有未填充的占位符**：正文里不允许出现 `{streak}` 这种花括号参数（`tp()` 漏传参数的典型症状）。
@@ -228,6 +228,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
     一次后回传 `boot_cache`（`keys_before` / `app_at_load` / `content_at_load` / `mark_at_load` /
     `mark_after` / `content_after`），各档断言：缓存写下来了、刷新后外壳立刻在、贴的是缓存、
     随后被真实数据替换、贴出来的内容不为空。
+
+13. **静态资源要压缩 + 预加载**：首屏 12 个 ES 模块（`main.js` + 7 个一层依赖 + 4 个二层）
+    未压缩共 214.6KB，RTT≈40ms 的链路上光下载就要 200ms+，比接口那 40ms 更容易被肉眼看见。
+    两处配置：nginx vhost 里 `gzip on`（`gzip_types` 必须同时写 `text/javascript` 与
+    `application/javascript`）；`frontend/user/index.html` 里对全部模块写 `rel="modulepreload"`
+    （同源不要加 `crossorigin`，凭据模式不一致会下载两份）。上线自证 4s 会真量
+    `size_download`（gzip vs identity）与 `content-encoding: gzip`。
 
 ## 前端开发硬约束
 

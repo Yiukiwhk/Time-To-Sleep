@@ -10,6 +10,22 @@
     <link rel="icon" href="/user/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/shared/base.css" />
     <link rel="stylesheet" href="/user/css/app.css" />
+
+    <!-- 首屏要 12 个 ES 模块。浏览器默认是「解析 main.js 才知道它 import 谁」，白等 1–2 个 RTT；
+         这里在解析 HTML 时就把它们全部声明出去，可以并行下载。
+         同源模块不要写 crossorigin：凭据模式必须与真正的模块请求一致，否则会重复下载两份。 -->
+    <link rel="modulepreload" href="/user/js/main.js" />
+    <link rel="modulepreload" href="/user/js/pages/advice.js" />
+    <link rel="modulepreload" href="/user/js/pages/records.js" />
+    <link rel="modulepreload" href="/user/js/pages/settings.js" />
+    <link rel="modulepreload" href="/user/js/references-modal.js" />
+    <link rel="modulepreload" href="/shared/api.js" />
+    <link rel="modulepreload" href="/shared/boot-cache.js" />
+    <link rel="modulepreload" href="/shared/ui.js" />
+    <link rel="modulepreload" href="/shared/i18n.js" />
+    <link rel="modulepreload" href="/shared/references.js" />
+    <link rel="modulepreload" href="/shared/timeline.js" />
+    <link rel="modulepreload" href="/shared/timepicker.js" />
   </head>
   <body>
     <!-- 登录页 -->
