@@ -1446,7 +1446,7 @@ async function ackNotice(root, btn) {
   }
 }
 
-/** 偏离弹窗：三个策略按钮 + 关闭（关闭不发请求） */
+/** 偏离弹窗：三个策略按钮各自结束弹窗；右上角 × 与底部「关闭」只关闭、不发请求 */
 async function askDeviation(root) {
   if (view.deviating) return;
   const deviation = view.state?.deviation;
@@ -1479,25 +1479,26 @@ async function askDeviation(root) {
         .join("")}
     </div>`;
 
-  let chosen = null;
-  await openModal({
+  // 底部只留一个「关闭」：三个策略都在正文里，点哪个就用 close(策略名) 结束弹窗。
+  // 别直接 host.remove()：那样 openModal 的 Promise 永远不 resolve，下面那段等于没执行
+  // （旧 bug：点「重算」毫无反应，而且 view.deviating 卡在 true，之后弹窗再也不出现）。
+  const chosen = await openModal({
     title: t("advice.deviation.ask.title"),
     bodyHtml,
-    okText: t("advice.deviation.dismiss"),
+    okText: null,
     cancelText: t("common.close"),
-    onMount: (host) => {
-      // 三个策略按钮自己结束弹窗；右上角 × 与"关闭"都只关闭，不发请求
+    onMount: (host, close) => {
       host.querySelectorAll("[data-strategy]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          chosen = btn.dataset.strategy;
-          host.remove();
-        });
+        btn.addEventListener("click", () => close(btn.dataset.strategy));
       });
     },
   });
 
-  if (chosen) await applyStrategy(root, chosen);
-  view.deviating = false;
+  try {
+    if (typeof chosen === "string") await applyStrategy(root, chosen);
+  } finally {
+    view.deviating = false;
+  }
 }
 
 async function applyStrategy(root, strategy) {

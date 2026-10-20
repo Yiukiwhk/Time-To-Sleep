@@ -81,7 +81,7 @@ export const toastErr = (message) => toast(message, "error");
  * @param {object} options
  * @param {string} options.title   标题（已翻译）
  * @param {string} options.bodyHtml 主体 HTML（调用方负责转义）
- * @param {string} [options.okText]
+ * @param {string|null} [options.okText] 传 null 表示不渲染主按钮（底部只留「取消/关闭」）
  * @param {string} [options.cancelText]
  * @param {boolean} [options.danger]
  * @param {Function} [options.onMount] 挂载后回调 (root, close)
@@ -110,7 +110,11 @@ export function openModal(options) {
         <div data-role="body">${bodyHtml}</div>
         <div class="modal-foot">
           <button class="btn" data-role="cancel">${escapeHtml(cancelText)}</button>
-          <button class="btn ${danger ? "btn-danger" : "btn-primary"}" data-role="ok">${escapeHtml(okText)}</button>
+          ${
+            okText === null
+              ? ""
+              : `<button class="btn ${danger ? "btn-danger" : "btn-primary"}" data-role="ok">${escapeHtml(okText)}</button>`
+          }
         </div>
       </div>`;
 

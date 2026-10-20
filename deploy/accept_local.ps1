@@ -419,6 +419,16 @@ if (-not $SkipBrowser) {
             if ($mode -eq "deviation") {
                 Check "deviation modal opened" ($json.modal_open -eq 1) "no .modal-host in the frame"
                 Check "deviation offers 3 strategies" ($json.modal_strategies -ge 3) ("strategies=" + $json.modal_strategies)
+                $df = $json.deviation_flow
+                if ($null -eq $df) {
+                    Check "deviation dialog measured" $false "deviation_flow missing from the probe summary"
+                } else {
+                    Check "deviation dialog offers a single foot button" ([int]$df.foot_buttons -eq 1) ("foot_buttons=" + $df.foot_buttons + " labels=" + $df.foot_labels)
+                    Check "the foot button reads close" ("$($df.foot_labels)" -match '关闭|Close') ("labels=" + $df.foot_labels)
+                    Check "choosing recompute really replans" (([int]$df.replan_calls -ge 1) -and ("$($df.replan_body)" -match 'recompute')) ("calls=" + $df.replan_calls + " body=" + $df.replan_body)
+                    Check "the deviation dialog closes after choosing" ([int]$df.closed -eq 1) ("closed=" + $df.closed)
+                    Check "the plan rows survive the replan" ([int]$df.day_cards_after -ge 1) ("day_cards_after=" + $df.day_cards_after)
+                }
             }
             if ($mode -eq "mobile") {
                 Check "narrow viewport uses the vertical timeline" ($json.tl_v -eq "flex" -and $json.tl_h -eq "none") ("tl_h=" + $json.tl_h + " tl_v=" + $json.tl_v)

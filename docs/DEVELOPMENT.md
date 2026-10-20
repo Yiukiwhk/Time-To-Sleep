@@ -252,6 +252,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
   改用 `hits=$(printf '%s' "$body" | grep -c -- "$needle" || true)` 再比较 `hits -ge 1`。
 - PowerShell 5.1 里 `*>` 重定向写出来的是 UTF-16 文件，Python 侧要按 `utf-16` 解码
   （或改用 `Set-Content -Encoding UTF8`）。
+- **弹窗里自定义按钮要 `close(值)`，不要 `host.remove()`**：`shared/ui.js` 的 `openModal()` 只通过
+  它自己的 `close()` resolve Promise；把弹窗节点直接删掉，`await openModal(...)` 永远不返回，
+  后面的逻辑（例如偏离弹窗的 `applyStrategy()`）等于没写，而且防重入标志会卡住。
+  偏离弹窗就是这么坏的：点「重新计算每日步长」毫无反应，弹窗还再也不会出现。
+  另外底部主按钮可以传 `okText: null` 来隐藏——两个都写「关闭」会渲染出一模一样的两个按钮。
 
 ## 提交信息与分支风格
 

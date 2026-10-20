@@ -402,6 +402,17 @@ grep_file "app.css: bubble style"        "$WEBROOT/user/css/app.css"        '.cu
 grep_file "i18n.js: cap copy"            "$WEBROOT/shared/i18n.js"          'advice.curve.capLine'
 grep_file "i18n.js: preview copy"        "$WEBROOT/shared/i18n.js"          'advice.curve.captionPreview'
 
+# 4p. The "your nights are off the plan" dialog used to remove itself from the DOM, so its
+# promise never resolved: choosing "recompute" silently did nothing and the dialog could never
+# appear again.  Now the footer has exactly one button and each strategy resolves the dialog.
+echo "== 4p. the deviation dialog resolves its choice =="
+grep_file   "advice.js: single close button"  "$WEBROOT/user/js/pages/advice.js" 'okText: null'
+grep_file   "advice.js: strategy resolves"    "$WEBROOT/user/js/pages/advice.js" 'close(btn.dataset.strategy)'
+grep_file   "ui.js: optional primary button"  "$WEBROOT/shared/ui.js"            'okText === null'
+grep_file   "i18n.js: strategy copy"          "$WEBROOT/shared/i18n.js"          'advice.deviation.postpone'
+grep_absent "advice.js: old silent path gone" "$WEBROOT/user/js/pages/advice.js" 'chosen = btn.dataset.strategy'
+grep_absent "i18n.js: dead dismiss label"     "$WEBROOT/shared/i18n.js"          'advice.deviation.dismiss'
+
 echo
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"
