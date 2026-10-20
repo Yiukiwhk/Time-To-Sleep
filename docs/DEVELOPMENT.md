@@ -206,11 +206,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
     各档断言：极限线存在、标记“该有才有”、`selfcheck == ok`（JS 版公式与后端一致）、气泡开合各一次且不出容器、
     联动到第一张日卡、预览点数 == 预览天数且改回后复原。
 
-11. **首帧别先画错再纠正**：刷新建议页时如果先按“没有方案”画出展开的表单、等数据回来再折叠，
-    用户会看到明显一闪（用户报过）。现在首帧按 `localStorage` 里按用户存的 `ssp.advice.hasPlan:<uid>`
-    决定折叠，数据回来再对账写回；右栏加载中画骨架（`data-advice-skeleton`）而不是一行“加载中”卡。
-    探针在 `first_paint` 里**重载一次 iframe** 专门量第一帧：`first_paint_folded` / `first_paint_expanded`
-    / `skeleton_seen` / `stale_reconciled`，六档断言“回访者首帧就是折叠的”“骨架先顶上”“记忆过时被数据纠正”。
+11. **页面的第一帧就是最终形态**：先按“没有方案”画展开的表单、等数据回来再折叠，用户会看到明显一闪
+    （用户报过；也不要拿骨架/“加载中”卡去遮，那只是把闪动换成灰块）。所以建议页是**等待式**加载：
+    `renderAdvicePage()` 先 `await Promise.all([options, plan])`，再在同一轮任务里
+    `renderShell()` → `bindForm()` → `syncForm()` → `renderPlanView()` 一次画完。
+    代价是数据回来之前页面区还是上一页（冷启动时是深色底），线上实测 25–45ms。
+    探针从**导航之前**开始逐帧采样 iframe，把 `paint_sample`（`frames` / `panel_frames` /
+    `incomplete_frames` / `skeleton_frames` / `settled_frames`）回传，六档断言
+    “页面出现时已经画完”（`incomplete_frames = 0`）且“没有骨架帧”（`skeleton_frames = 0`）。
 
 ## 前端开发硬约束
 

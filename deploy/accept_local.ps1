@@ -271,18 +271,15 @@ if (-not $SkipBrowser) {
                     Check "[$mode] step curve probe returned data" $false "curve_chart missing from the render summary"
                 }
             }
-            # 首帧记忆 + 骨架（用户报的"刷新时闪一下"）：记忆按用户写对、回访者首帧不展开、
-            # 骨架先顶上、记忆过时由数据纠正。
-            $fp = $json.first_paint
+            # 等待式加载（用户口径：不要灰骨架、不要先画半成品）：文档 load 那一刻面板要么还没出现、
+            # 要么出现时已经画完；骨架在哪一刻都不许出现；settle 之后必须是完整面板。
+            $ps = $json.paint_sample
             if ($adviceModes -contains $mode) {
-                if ($fp) {
-                    $keyOk = -not [string]::IsNullOrWhiteSpace([string]$fp.key)
-                    Check "[$mode] the plan memory is written for this user" (($keyOk) -and ([int]$fp.memory_written -eq 1)) ("key=" + $fp.key + " written=" + $fp.memory_written)
-                    Check "[$mode] a returning user's first paint already folds the form" (([int]$fp.first_paint_folded -eq 1) -and ([int]$fp.first_paint_expanded -eq 0)) ("folded=" + $fp.first_paint_folded + " expanded=" + $fp.first_paint_expanded)
-                    Check "[$mode] the loading skeleton paints before the data" ([int]$fp.skeleton_seen -eq 1) ("skeleton=" + $fp.skeleton_seen)
-                    Check "[$mode] a stale memory is corrected by the data" ([int]$fp.stale_reconciled -eq 1) ("stale_reconciled=" + $fp.stale_reconciled)
+                if ($ps) {
+                    $half = (([int]$ps.panel_first -eq 1) -and ([int]$ps.form_first -eq 1) -and ([int]$ps.ready_first -eq 0))
+                    Check "[$mode] the page is never painted half-ready" ((-not $half) -and ([int]$ps.skeleton_first -eq 0) -and ([int]$ps.skeleton_later -eq 0) -and ([int]$ps.ready_later -eq 1)) ("first: panel=" + $ps.panel_first + " form=" + $ps.form_first + " ready=" + $ps.ready_first + " skeleton=" + $ps.skeleton_first + " later: ready=" + $ps.ready_later + " skeleton=" + $ps.skeleton_later)
                 } else {
-                    Check "[$mode] first paint probe returned data" $false "first_paint missing from the render summary"
+                    Check "[$mode] first paint probe returned data" $false "paint_sample missing from the render summary"
                 }
             }
             # 现实作息窗口（用户需求）：探针作息（00:30 睡 / 08:30 起，目标 23:00/07:00）全程正常，

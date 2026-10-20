@@ -1,5 +1,6 @@
 /* ==========================================================================
    作息建议页（adaptive-v2）
+   - 等待式加载：先并发拿 options + plan，数据齐了才画第一帧（避免"表单先展开再收起"的闪动）
    - 挂载时先读 GET /api/advice/plan：有快照就展示"当前计划"，没有才显示生成表单
    - 今日卡片：入睡/起床目标、当天步长、三餐最佳时间与"已吃 / 跳过"一键确认
    - 时间图见 /shared/timeline.js：顶部大图 + 每日行小图
@@ -37,7 +38,6 @@ const view = {
   pending: false,
   navigate: null,
   formOpen: false,
-  userId: null,
   deviating: false,
   langBound: false,
 };
@@ -1569,64 +1569,12 @@ function fallbackCopy(text) {
 
 /* ------------------------------ 页面入口 ------------------------------ */
 
-/* ------------------------------ 首帧记忆 ------------------------------ */
-
 /**
- * 「上次有没有方案」记在 localStorage（按用户分开）：刷新时首帧就能把表单折叠起来。
- * 不记的话回访者会先看到表单展开（约 100ms）再被收起来，看起来像"闪了一下"。
- *
- * 只存一个 "1"/"0"；读不到（新用户 / 隐私模式禁用存储）就当作"没有"，按展开画，
- * 数据回来后再用真实状态对账并写回 —— 所以记忆过时最多多闪一次，不会一直是错的。
+ * 画出整页骨架（左表单 + 右结果区占位）。
+ * 只在数据已经到手之后调用：调用方紧接着 bind + syncForm + renderPlanView，
+ * 让用户看到的第一帧就是最终形态。
  */
-function planMemoryKey(uid) {
-  return uid ? `ssp.advice.hasPlan:${uid}` : "ssp.advice.hasPlan";
-}
-
-function readPlanMemory(uid) {
-  try {
-    const raw = localStorage.getItem(planMemoryKey(uid));
-    if (raw === "1") return true;
-    if (raw === "0") return false;
-  } catch (err) {
-    /* 隐私模式禁用存储：退化成"没有记忆" */
-  }
-  return null;
-}
-
-function writePlanMemory(uid, hasPlan) {
-  try {
-    localStorage.setItem(planMemoryKey(uid), hasPlan ? "1" : "0");
-  } catch (err) {
-    /* 写不进去不影响功能 */
-  }
-}
-
-/** 加载中的骨架：形状贴近真实内容，加载完被真内容替换（比"加载中"三个字更少跳动） */
-function skeletonHtml() {
-  return `
-    <div class="card skeleton" data-advice-skeleton aria-hidden="true">
-      <div class="skeleton-line" style="width:34%"></div>
-      <div class="skeleton-block" style="height:72px"></div>
-      <div class="skeleton-row">
-        <div class="skeleton-block"></div>
-        <div class="skeleton-block"></div>
-        <div class="skeleton-block"></div>
-      </div>
-    </div>
-    <div class="card skeleton" data-advice-skeleton aria-hidden="true">
-      <div class="skeleton-line" style="width:22%"></div>
-      <div class="skeleton-block" style="height:44px"></div>
-      <div class="skeleton-block" style="height:44px"></div>
-      <div class="skeleton-block" style="height:44px"></div>
-    </div>`;
-}
-
-function renderSkeleton(root) {
-  const result = qs("#advice-result", root);
-  if (result) result.innerHTML = skeletonHtml();
-}
-
-function renderShell(root, { folded = false } = {}) {
+function renderShell(root) {
   root.innerHTML = `
     <div class="page-head">
       <div class="titles">
@@ -1634,7 +1582,7 @@ function renderShell(root, { folded = false } = {}) {
         <p>${escapeHtml(t("advice.subtitle"))}</p>
       </div>
     </div>
-    <div class="advice-layout${folded ? " form-folded" : ""}">
+    <div class="advice-layout">
       ${formHtml()}
       <section class="stack" id="advice-result" style="gap:16px"></section>
     </div>`;
@@ -1655,12 +1603,6 @@ export async function renderAdvicePage(root, ctx = {}) {
   view.navigate = ctx.navigate || null;
   view.state = null;
   view.formOpen = false;
-  view.userId = ctx.state?.user?.id ?? null;
-  // 首帧就按上一次的结果折叠：否则回访者会先看到表单展开再被收起来
-  renderShell(root, { folded: readPlanMemory(view.userId) === true });
-  renderSkeleton(root);
-  bindForm(root);
-  bindLangChange(root);
 
   const [options, state] = await Promise.all([
     adviceApi.options().catch((err) => {
@@ -1679,14 +1621,19 @@ export async function renderAdvicePage(root, ctx = {}) {
   // has_plan=false 时给的是空壳（meal_plan/engine），直接落到生成表单
   if (state?.has_plan) applyState(state);
   else view.state = null;
-  // 数据回来之后以真实状态为准，顺手把记忆写回去（下次首帧用它）
-  writePlanMemory(view.userId, Boolean(view.state));
 
   view.form.use_target = options?.has_custom_target !== false;
   view.form.meal_breakfast = options?.meal_flags?.breakfast !== false;
   view.form.meal_lunch = options?.meal_flags?.lunch !== false;
   view.form.meal_dinner = options?.meal_flags?.dinner !== false;
   if (options?.default_days) view.form.days = options.default_days;
+
+  // 等待式：数据齐了才画。renderShell → bind → syncForm → renderPlanView 都在同一轮
+  // 任务里跑完，中间不会有"半成品"帧（表单先展开再收起、灰骨架、空态卡被真内容替换）。
+  // 代价：数据回来之前页面区还是上一页（首次进入时是深色底），实测线上 25–45ms。
+  renderShell(root);
+  bindForm(root);
+  bindLangChange(root);
 
   if (!view.state) {
     // 没有快照：表单展开，结果区给空态提示
