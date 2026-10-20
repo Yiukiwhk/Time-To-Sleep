@@ -224,7 +224,18 @@ if (-not $SkipBrowser) {
             }
             # 日卡里的建议默认折成一行（用户报的「空间利用率太低」）：默认不占位、
             # 点开就地展开并换成「收起建议」、再点回到折叠，展开时那张卡确实变高。
-            $tf = $json.tips_fold
+            $bc = $json.boot_cache
+    if ($bc -and [int]$bc.reloaded -eq 1) {
+      Check "[$mode] the first paint is remembered for the next refresh" ([int]$bc.keys_before -ge 1) ("keys_before=" + $bc.keys_before)
+      Check "[$mode] a refresh shows the app shell right away" ([int]$bc.app_at_load -eq 1) ("app_at_load=" + $bc.app_at_load)
+      Check "[$mode] a refresh paints the cached page first" ($bc.mark_at_load -ne "") ("mark_at_load=" + $bc.mark_at_load)
+      Check "[$mode] the cached paint is then replaced by live data" ($bc.mark_after -eq "2" -and [int]$bc.content_after -gt 200) ("mark_after=" + $bc.mark_after + " content_after=" + $bc.content_after)
+      Check "[$mode] the cached page is not empty" ([int]$bc.content_at_load -gt 200) ("content_at_load=" + $bc.content_at_load)
+    } else {
+      Check "[$mode] boot cache probe returned data" $false ("boot_cache=" + ($bc | ConvertTo-Json -Compress))
+    }
+
+    $tf = $json.tips_fold
             if ($adviceModes -contains $mode) {
                 if ($tf) {
                     Check "[$mode] day tips start folded" ([int]$tf.folded_by_default -eq 1) ("present=" + $tf.present + " folded=" + $tf.folded_by_default + " label=" + $tf.label)

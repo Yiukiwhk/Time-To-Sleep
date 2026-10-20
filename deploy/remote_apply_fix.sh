@@ -421,6 +421,13 @@ grep_absent "advice.js: no plan memory" "$WEBROOT/user/js/pages/advice.js" 'ssp.
 grep_absent "app.css: no skeleton styles" "$WEBROOT/user/css/app.css" '.skeleton-row'
 grep_absent "advice.js: old loader card gone" "$WEBROOT/user/js/pages/advice.js" 'function renderStatus'
 
+echo "== 4r. a refresh paints the last screen before the data =="
+grep_file "boot cache: module shipped" "$WEBROOT/shared/boot-cache.js" 'export function clearBootCache'
+grep_file "main.js: restore identity" "$WEBROOT/user/js/main.js" 'readBootUser()'
+grep_file "main.js: restore snapshot" "$WEBROOT/user/js/main.js" 'readPage(state.user.id, state.route)'
+grep_file "main.js: remember snapshot" "$WEBROOT/user/js/main.js" 'writePage(state.user.id, state.route, view.innerHTML)'
+grep_file "main.js: cleared on 401" "$WEBROOT/user/js/main.js" 'clearBootCache();'
+
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"
 else

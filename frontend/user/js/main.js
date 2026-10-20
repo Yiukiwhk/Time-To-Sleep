@@ -22,6 +22,13 @@ import { renderAdvicePage } from "./pages/advice.js";
 import { renderRecordsPage } from "./pages/records.js";
 import { renderSettingsPage } from "./pages/settings.js";
 import { openReferencesModal } from "./references-modal.js";
+import {
+  clearBootCache,
+  readBootUser,
+  readPage,
+  writeBootUser,
+  writePage,
+} from "/shared/boot-cache.js";
 
 export const state = {
   user: null,
@@ -154,12 +161,21 @@ export function navigate(route, { push = true } = {}) {
 
 let renderToken = 0;
 
-export async function renderRoute() {
+export async function renderRoute({ cached = false } = {}) {
   if (!state.user) return;
   const view = qs("#route-view");
   if (!view) return;
   const renderer = ROUTES[state.route] || ROUTES.records;
   const token = ++renderToken;
+  // 刷新后的第一帧：把上一次渲染完成的界面先贴回来，真实渲染随后覆盖它。
+  // 标记 "1" = 现在屏幕上的是缓存快照，"2" = 已经被真实渲染替换（探针就量这两个值）。
+  if (cached && state.user.id) {
+    const html = readPage(state.user.id, state.route);
+    if (html) {
+      view.innerHTML = html;
+      view.dataset.paintedFromCache = "1";
+    }
+  }
   try {
     await renderer(view, {
       state,
@@ -174,6 +190,10 @@ export async function renderRoute() {
         renderUserChip();
       },
     });
+    if (token === renderToken && state.user?.id) {
+      writePage(state.user.id, state.route, view.innerHTML);
+      if (view.dataset.paintedFromCache === "1") view.dataset.paintedFromCache = "2";
+    }
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
       handleAuthLost();
@@ -187,6 +207,7 @@ export async function renderRoute() {
 
 function handleAuthLost() {
   state.user = null;
+  clearBootCache();
   showLogin();
   toastErr(t("error.not_authenticated"));
 }
@@ -220,6 +241,7 @@ async function doLogin(event) {
 
 export async function afterLogin(user) {
   state.user = user;
+  writeBootUser(user);
   setLang(user.language || getLang());
   syncLangButtons();
   applyThemeAndSync(user.theme || storedTheme(), { persist: true });
@@ -237,6 +259,7 @@ async function logout() {
     /* 即使请求失败也回到登录页 */
   }
   state.user = null;
+  clearBootCache();
   qs("#login-form")?.reset();
   showLogin();
 }
@@ -289,9 +312,31 @@ async function bootstrap() {
   syncThemeButtons();
   bindChrome();
 
+  // 刷新/首次进入：有上次的登录身份，就先把外壳和上一屏贴出来（0ms，不等 /auth/me），
+  // 然后再去后台校验；身份不符、401 都会立刻清缓存并回登录页。
+  const cachedUser = readBootUser();
+  let paintedFromCache = false;
+  if (cachedUser && !cachedUser.is_admin) {
+    state.user = cachedUser;
+    const route = (window.location.hash || "").replace(/^#\/?/, "");
+    state.route = ROUTES[route] ? route : "records";
+    showApp();
+    renderUserChip();
+    paintedFromCache = true;
+    await renderRoute({ cached: true });
+  }
+
   try {
     const user = await authApi.me();
     if (user && !user.is_admin) {
+      writeBootUser(user);
+      if (paintedFromCache && cachedUser && cachedUser.id === user.id) {
+        // 同一个人：贴上去的那一屏原地留着，页面自己会去后台校验数据；
+        // 这里不再整页重绘一次，免得滚动位置跳一下。
+        state.user = user;
+        renderUserChip();
+        return;
+      }
       await afterLogin(user);
       return;
     }
@@ -313,6 +358,7 @@ async function bootstrap() {
       toastErr(err instanceof Error ? err.message : translateError(null));
     }
   }
+  clearBootCache();
   showLogin();
 }
 

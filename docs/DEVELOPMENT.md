@@ -155,7 +155,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 | `refused` | 1440×1240 | 早餐卡片提供「不想吃」按钮 → 真点提交打卡（`POST /api/advice/checkin`）、晚餐精确提前 60 分钟、午餐不推后（有空间时提前）、按钮进入激活态、点「吃了」撤销后恢复、快速模式说明固定单日并隐藏天数滑块 |
 | `mobile` | 390×900 | 窄屏改用纵向时间图、时间图条 ≥4、无横向溢出 |
 
-每一档都会顺带跑十一条“用户看得到”的回归护栏，任何一条不过整体失败：
+每一档都会顺带跑十二条“用户看得到”的回归护栏，任何一条不过整体失败：
 
 1. **没有漏翻的 i18n key**：正文里不允许出现 `advice.* / records.* / common.*` 这类原始 key。
 2. **没有未填充的占位符**：正文里不允许出现 `{streak}` 这种花括号参数（`tp()` 漏传参数的典型症状）。
@@ -210,10 +210,24 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
     （用户报过；也不要拿骨架/“加载中”卡去遮，那只是把闪动换成灰块）。所以建议页是**等待式**加载：
     `renderAdvicePage()` 先 `await Promise.all([options, plan])`，再在同一轮任务里
     `renderShell()` → `bindForm()` → `syncForm()` → `renderPlanView()` 一次画完。
-    代价是数据回来之前页面区还是上一页（冷启动时是深色底），线上实测 25–45ms。
-    探针从**导航之前**开始逐帧采样 iframe，把 `paint_sample`（`frames` / `panel_frames` /
-    `incomplete_frames` / `skeleton_frames` / `settled_frames`）回传，六档断言
-    “页面出现时已经画完”（`incomplete_frames = 0`）且“没有骨架帧”（`skeleton_frames = 0`）。
+    代价是数据回来之前页面区还是上一页（冷启动时是深色底），线上实测 25–45ms；刷新这一次
+    由下面第 12 条的首帧缓存兜住。探针只取两个时间点（`load` 那一刻 + settle 之后），把
+    `paint_sample` 的 `panel_first` / `form_first` / `ready_first` / `skeleton_first` /
+    `skeleton_later` / `ready_later` 回传，各档断言“页面要么还没画、要么已经画完”
+    （`panel_first=1 && form_first=1 && ready_first=0` 才算半成品）。早先用
+    requestAnimationFrame 链逐帧采样，会把 headless 的 `--virtual-time-budget` 耗光，
+    五档摘要根本回传不了、截图是空白页 —— 别再逐帧采样。
+
+12. **刷新时先把上一屏贴回来**（首帧缓存）：`/api/auth/me` 和页面数据都要时间，这段时间屏幕上不该是黑的
+    或者上一页。`frontend/shared/boot-cache.js` 用 `sessionStorage` 存两样东西：上次的登录身份
+    （`ssp.boot.user`）和每个路由上次渲染完成的 `#route-view.innerHTML`（`ssp.boot.page.<route>`，
+    带 uid 与 12 小时 TTL）。`main.js` 的 `bootstrap()` 一拿到缓存就 `showApp()` +
+    `renderRoute({ cached: true })` 把上一屏贴出来，再去后台 `me()` 校验：同一账号就当没事发生
+    （不整页重绘，滚动位置不跳），换账号或 401 就 `clearBootCache()` 回登录页。`#route-view` 上的
+    `data-painted-from-cache` 是探针钩子（`1` = 现在贴的是缓存，`2` = 已被真实渲染替换）。探针刷新
+    一次后回传 `boot_cache`（`keys_before` / `app_at_load` / `content_at_load` / `mark_at_load` /
+    `mark_after` / `content_after`），各档断言：缓存写下来了、刷新后外壳立刻在、贴的是缓存、
+    随后被真实数据替换、贴出来的内容不为空。
 
 ## 前端开发硬约束
 
