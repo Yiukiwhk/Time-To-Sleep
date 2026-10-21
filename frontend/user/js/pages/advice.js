@@ -249,6 +249,13 @@ function todayCardHtml(data) {
       <div class="row-wrap"><span class="label">${escapeHtml(t("advice.timeline.title"))}</span></div>
       <div class="timeline-slot" data-timeline></div>
     </div>
+
+    <div class="today-actions">
+      <span class="tiny">${escapeHtml(t("advice.regenerateHint"))}</span>
+      <button class="btn btn-sm" id="advice-regenerate-bottom" data-regenerate>${escapeHtml(
+        t("advice.regenerateBottom")
+      )}</button>
+    </div>
   </section>`;
 }
 
@@ -914,7 +921,7 @@ function renderPlanView(root) {
               )}</button>`
             : ""
         }
-        <button class="btn btn-sm btn-ghost" id="advice-regenerate">${escapeHtml(t("advice.regenerate"))}</button>
+        <button class="btn btn-sm btn-primary" id="advice-regenerate" data-regenerate>${escapeHtml(t("advice.regenerate"))}</button>
       </div>
       <div class="advice-summary">
         <div class="summary-cell">
@@ -1030,12 +1037,17 @@ function bindPlanActions(root) {
   const exportBtn = qs("#advice-export", root);
   if (exportBtn) exportBtn.addEventListener("click", () => exportPlan(view.state.plan));
 
-  const regen = qs("#advice-regenerate", root);
-  if (regen) {
-    regen.addEventListener("click", () => {
+  // 两个入口（目标作息卡头部的主按钮 + 今天卡底部的次要按钮）共用同一段逻辑。
+  // 用事件委托：局部重绘会换掉按钮节点，委托挂在 root 上就不用重新绑。
+  if (root.dataset.regenBound !== "1") {
+    root.dataset.regenBound = "1";
+    root.addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-regenerate]");
+      if (!btn || !root.contains(btn)) return;
       view.formOpen = true;
       syncForm(root, { collapse: false });
       qs("#advice-form", root)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      qs("#generate", root)?.focus({ preventScroll: true });
     });
   }
 

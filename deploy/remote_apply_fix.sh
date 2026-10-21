@@ -428,6 +428,12 @@ grep_file "main.js: restore snapshot" "$WEBROOT/user/js/main.js" 'readPage(state
 grep_file "main.js: remember snapshot" "$WEBROOT/user/js/main.js" 'writePage(state.user.id, state.route, view.innerHTML)'
 grep_file "main.js: cleared on 401" "$WEBROOT/user/js/main.js" 'clearBootCache();'
 
+echo "== 4t. regenerate is the primary action and sits next to today's plan =="
+grep_file "advice.js: primary regenerate" "$WEBROOT/user/js/pages/advice.js" 'advice-regenerate-bottom'
+grep_file "advice.js: one handler for both entries" "$WEBROOT/user/js/pages/advice.js" 'data-regenerate'
+grep_file "app.css: today actions row" "$WEBROOT/user/css/app.css" '.today-actions'
+grep_file "i18n.js: lower entry label" "$WEBROOT/shared/i18n.js" 'advice.regenerateBottom'
+
 echo "== 4s. static assets are compressed and the module graph is preloaded =="
 grep_file "index.html: modulepreload" "$WEBROOT/user/index.html" 'rel="modulepreload"'
 grep_file "vhost: gzip on" "$VHOST" 'gzip on;'

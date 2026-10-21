@@ -155,7 +155,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 | `refused` | 1440×1240 | 早餐卡片提供「不想吃」按钮 → 真点提交打卡（`POST /api/advice/checkin`）、晚餐精确提前 60 分钟、午餐不推后（有空间时提前）、按钮进入激活态、点「吃了」撤销后恢复、快速模式说明固定单日并隐藏天数滑块 |
 | `mobile` | 390×900 | 窄屏改用纵向时间图、时间图条 ≥4、无横向溢出 |
 
-每一档都会顺带跑十三条“用户看得到”的回归护栏，任何一条不过整体失败：
+每一档都会顺带跑十四条“用户看得到”的回归护栏，任何一条不过整体失败：
 
 1. **没有漏翻的 i18n key**：正文里不允许出现 `advice.* / records.* / common.*` 这类原始 key。
 2. **没有未填充的占位符**：正文里不允许出现 `{streak}` 这种花括号参数（`tp()` 漏传参数的典型症状）。
@@ -235,6 +235,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
     `application/javascript`）；`frontend/user/index.html` 里对全部模块写 `rel="modulepreload"`
     （同源不要加 `crossorigin`，凭据模式不一致会下载两份）。上线自证 4s 会真量
     `size_download`（gzip vs identity）与 `content-encoding: gzip`。
+14. **“重新生成方案”要显眼，也要在手边**：它原先只是目标作息卡头部的一个 `btn-ghost`
+    （透明底、13px 灰字），比旁边“复制方案”还弱，而且卡片在“今天”下面、1440×900 上要下滚才见。
+    现在头部那颗改成 `btn-primary`，另外在今天卡底部加一条 `data-regenerate` 的次要入口；
+    两颗按钮共用同一段事件委托（挂在 `#advice-result` 上，`root.dataset.regenBound` 防重复绑定），
+    因为局部重绘（`renderTodayOnly`）会换掉按钮节点。探针回传 `regenerate_primary` /
+    `regenerate_bottom`，并**点下面那颗**验证“展开表单 + 滚到表单”这条路真的通。
 
 ## 前端开发硬约束
 

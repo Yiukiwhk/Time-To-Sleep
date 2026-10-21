@@ -559,6 +559,16 @@
 .today-head .mono { font-size: 13px; }
 
 /* 今日一天的时间轴：标题行 + 大号时间图 */
+.today-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.today-actions .tiny { color: var(--text-soft); }
+
 .today-timeline { display: flex; flex-direction: column; gap: 8px; }
 .today-timeline .label { font-size: 12px; color: var(--text-muted); }
 

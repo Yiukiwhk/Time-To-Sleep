@@ -435,7 +435,9 @@ if (-not $SkipBrowser) {
                     # 折叠/展开：有方案时表单整张卡要收起（不能留一个空壳卡片），
                     # 结果区的「重新生成方案」要能把它原样展开回来
                     Check "the form is folded away while a plan is open" ([int]$rf.form_collapsed_with_plan -eq 1) ("form_collapsed_with_plan=" + $rf.form_collapsed_with_plan)
-                    Check "regenerate brings the form back" (([int]$rf.regenerate_present -eq 1) -and ([int]$rf.form_open_after_regenerate -eq 1)) ("regenerate_present=" + $rf.regenerate_present + " form_open_after_regenerate=" + $rf.form_open_after_regenerate)
+                    Check "the main regenerate button is the primary action" ([int]$rf.regenerate_primary -eq 1) ("regenerate_primary=" + $rf.regenerate_primary)
+  Check "today's card offers a second regenerate entry" ([int]$rf.regenerate_bottom -eq 1) ("regenerate_bottom=" + $rf.regenerate_bottom)
+  Check "regenerate brings the form back" (([int]$rf.regenerate_present -eq 1) -and ([int]$rf.form_open_after_regenerate -eq 1)) ("regenerate_present=" + $rf.regenerate_present + " form_open_after_regenerate=" + $rf.form_open_after_regenerate)
                 }
             }
             if ($mode -eq "deviation") {
