@@ -78,6 +78,18 @@ def span_minutes(record_date: str, sleep_time: str, wake_date: str | None, wake_
     return day_gap * 24 * 60 + parse_hhmm(wake_time) - parse_hhmm(sleep_time)
 
 
+def derive_meal_date(record_date: str, wake_date: str | None = None) -> str:
+    """这条记录的三餐属于哪一天：默认等于入睡日。
+
+    例外：入睡与醒来是同一天（过了零点才睡），那一晚的三餐其实都在前一天吃完了
+    （晚餐吃完才去睡、早餐是醒来之后新一天的事），所以三餐日期取入睡日的前一天。
+    """
+    start = parse_iso_date(record_date)
+    if wake_date and wake_date == record_date:
+        start -= timedelta(days=1)
+    return start.isoformat()
+
+
 def circular_diff_minutes(a: int, b: int) -> int:
     """两个钟点之间的最短有向差（a → b），范围 (-720, 720]。"""
     diff = (b - a) % (24 * 60)

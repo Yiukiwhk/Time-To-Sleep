@@ -434,6 +434,18 @@ grep_file "advice.js: one handler for both entries" "$WEBROOT/user/js/pages/advi
 grep_file "app.css: today actions row" "$WEBROOT/user/css/app.css" '.today-actions'
 grep_file "i18n.js: lower entry label" "$WEBROOT/shared/i18n.js" 'advice.regenerateBottom'
 
+echo "== 4u. meals are recorded per meal date and only the last day moves them =="
+grep_file "models: meal date column" "$APP_DIR/backend/app/models.py" 'meal_date'
+grep_file "db: meal date migration" "$APP_DIR/backend/app/db.py" '_migrate_sleep_records_meal_date'
+grep_file "advice.py: meal day helper" "$APP_DIR/backend/app/services/advice.py" 'def meal_day_of'
+grep_file "advice.py: skip offsets" "$APP_DIR/backend/app/services/advice.py" 'MEAL_EARLY_AFTER_SKIP'
+grep_file "advice.py: shift reason" "$APP_DIR/backend/app/services/advice.py" 'shift_reason'
+grep_file "records.js: meal date field" "$WEBROOT/user/js/pages/records.js" 'f-meal-date'
+grep_file "advice.js: meal shift badge" "$WEBROOT/user/js/pages/advice.js" 'data-meal-shift'
+grep_file "i18n.js: one-line rule note" "$WEBROOT/shared/i18n.js" 'advice.meal.note.dynamic'
+grep_absent "advice.js: no not-eating button" "$WEBROOT/user/js/pages/advice.js" 'data-refused'
+grep_absent "i18n.js: ladder copy gone" "$WEBROOT/shared/i18n.js" 'advice.meal.lunch_advanced'
+
 echo "== 4s. static assets are compressed and the module graph is preloaded =="
 grep_file "index.html: modulepreload" "$WEBROOT/user/index.html" 'rel="modulepreload"'
 grep_file "vhost: gzip on" "$VHOST" 'gzip on;'

@@ -266,60 +266,32 @@ def test_short_plan_notice_can_be_acknowledged(client: TestClient) -> None:
     assert acked["advice.notice.short_plan"]["acked"] is True
 
 
-def test_lunch_shifts_earlier_when_breakfast_skipped(client: TestClient) -> None:
+def test_today_breakfast_skip_shifts_lunch_and_dinner(client: TestClient) -> None:
+    """今天早餐没吃 → 今天午/晚各提前 60 分钟；明天的早餐不受影响。"""
     username = "mealshift"
-    user_id = _make_user(username, rows=_records_pattern("00:30", "08:30"), target=("23:00", "07:00"))
+    _make_user(username, rows=_records_pattern("00:30", "08:30"), target=("23:00", "07:00"))
     _login(client, username)
 
     base = client.post("/api/advice", json={"mode": "slow", "days": 3}).json()
-    assert base["meal_plan"]["lunch_shift_minutes"] == 0
+    assert base["meal_plan"]["today"]["breakfast"] == "unknown"
 
-    for offset in (3, 2, 1):
-        response = client.post(
-            "/api/advice/checkin",
-            json={
-                "meal": "breakfast",
-                "eaten": False,
-                "date": (TODAY - timedelta(days=offset)).isoformat(),
-            },
-        ).json()
-        assert response["ok"] is True
-    assert response["meal_plan"]["breakfast_skipped_streak"] == 3
-    assert response["meal_plan"]["lunch_shift_minutes"] == 120
+    body = client.post("/api/advice/checkin", json={"meal": "breakfast", "eaten": False}).json()
+    assert body["ok"] is True
+    assert body["meal_plan"]["today"]["breakfast"] == "skipped"
 
     shifted = client.post("/api/advice", json={"mode": "slow", "days": 3}).json()
-    assert shifted["meal_plan"]["lunch_shift_minutes"] == 120
-    day = shifted["plan"][0]
-    wake = parse_hhmm(day["wake_time"])
-    shifted_lunch = parse_hhmm(day["meals"]["lunch"]["best_time"])
-    # 阶梯前移在"现实窗口"里能走多少走多少：午餐被夹进 11:00~15:00，
-    # 所以前移量最多到窗口下限（11:00）为止，不会跑到 11:00 之前去。
-    base_lunch = parse_hhmm(base["plan"][0]["meals"]["lunch"]["best_time"])
-    expected_lunch = max(
-        advice_service.LUNCH_NORMAL_WINDOW[0],
-        (base_lunch - 120) % advice_service.DAY,
-    )
-    assert shifted_lunch < base_lunch
-    assert shifted_lunch == expected_lunch, (base_lunch, shifted_lunch)
-    assert advice_service.LUNCH_NORMAL_WINDOW[0] <= shifted_lunch <= advice_service.LUNCH_NORMAL_WINDOW[1]
-    assert (shifted_lunch - wake) % advice_service.DAY >= advice_service.LUNCH_FLOOR_AFTER_WAKE
-    assert day["meals"]["lunch"]["shifted_minutes"] == 120
-    assert any(
-        notice["code"] == "advice.notice.lunch_advanced" for notice in shifted["notices"]
-    )
-
-    # 一键确认会同步写回当天的睡眠记录
-    with SessionLocal() as session:
-        record = (
-            session.query(SleepRecord)
-            .filter(
-                SleepRecord.user_id == user_id,
-                SleepRecord.record_date == (TODAY - timedelta(days=1)).isoformat(),
-            )
-            .one_or_none()
-        )
-    assert record is not None and record.meal_breakfast is False
-
+    today = shifted["plan"][0]
+    assert today["meals"]["lunch"]["shifted_minutes"] == 60
+    assert today["meals"]["lunch"]["shift_reason"] == "breakfast"
+    assert today["meals"]["dinner"]["shifted_minutes"] == 60
+    assert today["meals"]["dinner"]["shift_reason"] == "breakfast"
+    assert shifted["plan"][1]["meals"]["breakfast"]["shifted_minutes"] == 0
+    # 午餐仍受“起床后至少 2 小时”和现实窗口约束
+    wake = parse_hhmm(today["wake_time"])
+    lunch = parse_hhmm(today["meals"]["lunch"]["best_time"])
+    assert (lunch - wake) % advice_service.DAY >= advice_service.LUNCH_FLOOR_AFTER_WAKE
+    if wake <= advice_service.NORMAL_WAKE_UNTIL:
+        assert lunch >= advice_service.LUNCH_NORMAL_WINDOW[0]
 
 def test_lunch_midpoint_keeps_gaps_reasonable_on_long_days(client: TestClient) -> None:
     """晚睡早起（白天 19 小时）不该出现"午到晚"十几个小时的间隔。
@@ -389,115 +361,77 @@ def test_checkin_eaten_true_writes_back(client: TestClient) -> None:
     assert body["meal_plan"]["recent"][-1]["meals"]["dinner"]["state"] == "eaten"
 
 
-def test_refused_breakfast_pulls_today_meals_earlier(client: TestClient) -> None:
-    """早餐"不想吃"：算作没吃早餐，并把**今天**的午餐与晚餐各提前 60 分钟。
-
-    只影响今天这一格（未来的计划日照旧），而且点"已吃"要能撤销；
-    重新读计划时今天卡片与方案列表的第一行必须是同一份时间。
-    """
-    username = "refused"
+def test_meals_shift_only_from_yesterday_and_today(client: TestClient) -> None:
+    """三餐只按昨天与当天移动：昨天晚餐影响今天早餐，今天各餐影响今天午晚与明天早餐。"""
+    username = "mealrules"
     _make_user(username, rows=_records_pattern("00:30", "08:30"), target=("23:00", "07:00"))
     _login(client, username)
 
-    base = client.post("/api/advice", json={"mode": "slow", "days": 3}).json()
-    base_lunch = parse_hhmm(base["today"]["meals"]["lunch"]["best_time"])
-    base_dinner = parse_hhmm(base["today"]["meals"]["dinner"]["best_time"])
-    tomorrow_dinner = parse_hhmm(base["plan"][1]["meals"]["dinner"]["best_time"])
-    assert base["meal_plan"]["refused_breakfast_today"] is False
+    base = client.post("/api/advice", json={"mode": "slow", "days": 4}).json()
+    assert base["meal_plan"]["today"]["breakfast"] == "unknown"
 
-    body = client.post(
+    # 昨天晚餐没吃 → 今天早餐提前，并被“起床后 5 分钟”的地板卡住
+    client.post(
         "/api/advice/checkin",
-        json={"meal": "breakfast", "eaten": False, "refused": True},
-    ).json()
-    assert body["refused"] is True
-    assert body["meal_plan"]["refused_breakfast_today"] is True
-    assert body["meal_plan"]["dinner_shift_minutes"] == advice_service.REFUSED_BREAKFAST_SHIFT
-    assert body["meal_plan"]["recent"][-1]["meals"]["breakfast"]["state"] == "refused"
-    # 打卡响应直接带回重算后的今天 + 时间图，前端不需要再拉一次整页
-    assert body["today"] is not None and body["timeline"] is not None
-    lunch = parse_hhmm(body["today"]["meals"]["lunch"]["best_time"])
-    dinner = parse_hhmm(body["today"]["meals"]["dinner"]["best_time"])
-    # 晚餐：精确提前 60 分钟；午餐：先按"没吃早餐"的阶梯前移 60 分钟，
-    # 又因为午餐取的是"早餐~晚餐"的中点，而晚餐也提前了 60 → 中点再跟着走 30 分钟
-    assert (base_dinner - dinner) % advice_service.DAY == advice_service.REFUSED_BREAKFAST_SHIFT
-    lunch_moved = (base_lunch - lunch) % advice_service.DAY
-    assert advice_service.REFUSED_BREAKFAST_SHIFT <= lunch_moved <= advice_service.LUNCH_ADVANCE_LADDER[-1]
-    assert body["today"]["meals"]["dinner"]["shifted_minutes"] == advice_service.REFUSED_BREAKFAST_SHIFT
-    # 提前之后"午→晚"的间隔仍要落在合理区间里（这也是当初改取中点的原因）
-    gap = (dinner - lunch) % advice_service.DAY
-    assert advice_service.LUNCH_TO_DINNER_MIN <= gap <= 8 * 60, gap
-
-    # 重新读计划：叠加是"读取时"做的，方案列表第一行（同一天）必须和今天卡片一致
-    state = client.get("/api/advice/plan").json()
-    row = next(day for day in state["plan"]["plan"] if day["date"] == TODAY.isoformat())
-    assert row["meals"]["dinner"]["best_time"] == state["today"]["meals"]["dinner"]["best_time"]
-    assert row["meals"]["lunch"]["best_time"] == state["today"]["meals"]["lunch"]["best_time"]
-    # 未来的计划日不受今天"不想吃"的影响
-    future = next(
-        day
-        for day in state["plan"]["plan"]
-        if day["date"] == (TODAY + timedelta(days=1)).isoformat()
+        json={"meal": "dinner", "eaten": False, "date": (TODAY - timedelta(days=1)).isoformat()},
     )
-    assert parse_hhmm(future["meals"]["dinner"]["best_time"]) == tomorrow_dinner
+    marked = client.post("/api/advice", json={"mode": "slow", "days": 4}).json()
+    today = marked["plan"][0]
+    breakfast = today["meals"]["breakfast"]
+    assert breakfast["shift_reason"] == "yesterday_dinner"
+    assert breakfast["shifted_minutes"] == max(
+        0,
+        min(
+            advice_service.MEAL_EARLY_AFTER_SKIP["dinner"],
+            advice_service.BREAKFAST_AFTER_WAKE[0] - advice_service.BREAKFAST_FLOOR_AFTER_WAKE,
+        ),
+    )
+    assert today["meals"]["lunch"]["shifted_minutes"] == 0
+    assert today["meals"]["dinner"]["shifted_minutes"] == 0
+    assert marked["plan"][1]["meals"]["breakfast"]["shifted_minutes"] == 0
 
-    # 点"已吃"撤销：今天的三餐回到原样
-    undone = client.post(
-        "/api/advice/checkin", json={"meal": "breakfast", "eaten": True}
-    ).json()
-    assert undone["meal_plan"]["refused_breakfast_today"] is False
-    assert undone["meal_plan"]["dinner_shift_minutes"] == 0
-    assert parse_hhmm(undone["today"]["meals"]["lunch"]["best_time"]) == base_lunch
-    assert parse_hhmm(undone["today"]["meals"]["dinner"]["best_time"]) == base_dinner
+    # 今天早餐没吃 → 今天午餐与晚餐各提前 60
+    client.post("/api/advice/checkin", json={"meal": "breakfast", "eaten": False})
+    after = client.post("/api/advice", json={"mode": "slow", "days": 4}).json()
+    day = after["plan"][0]
+    assert day["meals"]["lunch"]["shifted_minutes"] == 60
+    assert day["meals"]["lunch"]["shift_reason"] == "breakfast"
+    assert day["meals"]["dinner"]["shifted_minutes"] == 60
+    assert day["meals"]["dinner"]["shift_reason"] == "breakfast"
+    assert after["plan"][1]["meals"]["breakfast"]["shifted_minutes"] == 0
 
-    # "不想吃"只对早餐有意义：午餐传 refused 要按普通"没吃"处理
-    other = client.post(
-        "/api/advice/checkin", json={"meal": "lunch", "eaten": False, "refused": True}
-    ).json()
-    assert other["refused"] is False
-    assert other["meal_plan"]["refused_breakfast_today"] is False
+    # 今天午餐也没吃 → 晚餐叠加到 90（60 + 30）封顶
+    client.post("/api/advice/checkin", json={"meal": "lunch", "eaten": False})
+    stacked = client.post("/api/advice", json={"mode": "slow", "days": 4}).json()
+    dinner = stacked["plan"][0]["meals"]["dinner"]
+    assert dinner["shifted_minutes"] == advice_service.DINNER_MAX_EARLY
+    assert dinner["shift_reason"] == "breakfast_and_lunch"
 
+    # 今天晚餐没吃 → 明天早餐提前 30，再往后没有数据所以不动
+    client.post("/api/advice/checkin", json={"meal": "dinner", "eaten": False})
+    nextday = client.post("/api/advice", json={"mode": "slow", "days": 4}).json()
+    assert nextday["plan"][1]["meals"]["breakfast"]["shift_reason"] == "yesterday_dinner"
+    assert nextday["plan"][2]["meals"]["breakfast"]["shifted_minutes"] == 0
+    assert nextday["meal_plan"]["today"]["breakfast"] == "skipped"
 
-def test_refusal_preview_matches_the_real_checkin(client: TestClient) -> None:
-    """前端"点了会变成…"的预测必须与点下去之后的真实结果逐字段一致。
-
-    预测是后端用真正生效的叠加函数在副本上算出来的（refusal_preview）。两条路径一旦
-    分叉，界面就会自相矛盾：提示"午餐 11:00"，点完却变成 11:30。
-    """
-    username = "previewmatch"
+def test_old_refused_flag_behaves_like_skipped(client: TestClient) -> None:
+    """「不想吃」按钮下线了，但库里老的 refused 行必须与 skipped 等价。"""
+    username = "refusedold"
     _make_user(username, rows=_records_pattern("00:30", "08:30"), target=("23:00", "07:00"))
     _login(client, username)
-
-    plan = client.post("/api/advice", json={"mode": "slow", "days": 3}).json()
-    preview = plan["today"]["refusal_preview"]
-    assert preview and preview["date"] == TODAY.isoformat()
-    assert preview["dinner_shift_minutes"] == advice_service.REFUSED_BREAKFAST_SHIFT
-    assert preview["lunch"]["best_time"] and preview["dinner"]["best_time"]
+    client.post("/api/advice", json={"mode": "slow", "days": 3})
 
     body = client.post(
         "/api/advice/checkin",
         json={"meal": "breakfast", "eaten": False, "refused": True},
     ).json()
-    for key in ("lunch", "dinner"):
-        real = body["today"]["meals"][key]
-        for field in ("best_time", "window_start", "window_end"):
-            assert preview[key][field] == real[field], (key, field, preview[key], real)
+    assert body["ok"] is True
+    assert body["meal_plan"]["today"]["breakfast"] == "skipped"
+    day = body["today"]
+    assert day["meals"]["lunch"]["shifted_minutes"] == 60
+    assert day["meals"]["dinner"]["shifted_minutes"] == 60
+    assert "refusal_preview" not in day
 
-    # 刷新页面走的是读取路径（不是刚生成的内存对象），预测同样要在场且一致
-    state = client.get("/api/advice/plan").json()
-    assert state["today"]["refusal_preview"] == preview
-
-    # 撤销之后：今天的真实时间回到基准，而预测仍然是"再点一次会变成的时间"
-    undone = client.post(
-        "/api/advice/checkin", json={"meal": "breakfast", "eaten": True}
-    ).json()
-    fresh = undone["today"]["refusal_preview"]
-    assert fresh and fresh["lunch"]["best_time"] == preview["lunch"]["best_time"]
-    assert fresh["dinner"]["best_time"] != undone["today"]["meals"]["dinner"]["best_time"]
-
-
-# --------------------------------------------------------------------------- #
-# 快照 / 偏离 / 重算
-# --------------------------------------------------------------------------- #
 def test_plan_snapshot_deviation_and_replan(client: TestClient) -> None:
     username = "deviate"
     user_id = _make_user(
@@ -798,9 +732,9 @@ def test_wake_date_range_and_order_are_validated(client: TestClient) -> None:
     assert same_times.json()["code"] == "error.invalid_time_range"
 
 
-def test_meals_belong_to_the_wake_day(client: TestClient) -> None:
-    """昨晚睡、今早起的记录：它的三餐算**今天**的（不是入睡日那天的）。"""
-    username = "wakeday"
+def test_meals_belong_to_the_meal_date(client: TestClient) -> None:
+    """记录页勾的三餐按“三餐日期”归档：跨夜那晚的三餐属于入睡日，不是起床日。"""
+    username = "mealday"
     _make_user(username, target=("23:00", "07:00"))
     _login(client, username)
     yesterday = (TODAY - timedelta(days=1)).isoformat()
@@ -811,29 +745,35 @@ def test_meals_belong_to_the_wake_day(client: TestClient) -> None:
             "wake_date": TODAY.isoformat(),
             "sleep_time": "23:30",
             "wake_time": "07:30",
-            "meal_breakfast": False,
-            "meal_lunch": True,
-            "meal_dinner": True,
+            "meal_lunch": False,
         },
     ).json()
-    assert created["wake_date"] == TODAY.isoformat()
+    assert created["meal_date"] == yesterday
 
-    recent = client.get("/api/advice/plan").json()["meal_plan"]["recent"]
-    today_row = [row for row in recent if row["date"] == TODAY.isoformat()]
-    assert today_row, "今天这一格要能看到昨晚那条记录"
-    assert today_row[0]["meals"]["breakfast"]["state"] == "skipped"
-    # 入睡日那一格不能跟着一起"没吃早餐"
-    yesterday_row = [row for row in recent if row["date"] == yesterday]
-    assert yesterday_row == [] or yesterday_row[0]["meals"]["breakfast"]["state"] != "skipped"
+    state = client.get("/api/advice/plan").json()
+    days = {item["date"]: item["meals"] for item in state["meal_plan"]["days"]}
+    assert days[yesterday]["lunch"]["state"] == "skipped"
+    assert days[TODAY.isoformat()]["lunch"]["state"] == "unknown"
 
-
-def test_checkin_writes_back_to_the_wake_day_record(client: TestClient) -> None:
-    """打卡回写要按起床日找记录：昨晚睡今天起的记录，今天打卡能写进去。"""
+def test_checkin_writes_back_to_the_meal_day_record(client: TestClient) -> None:
+    """打卡回写落在「三餐所属日」（meal_date）那条记录上，不是起床日那条。"""
     username = "wakeback"
     _make_user(username, target=("23:00", "07:00"))
     _login(client, username)
+    tomorrow = (TODAY + timedelta(days=1)).isoformat()
     yesterday = (TODAY - timedelta(days=1)).isoformat()
+    # 今天这一夜：入睡日=今天、起床日=明天 → 三餐记录属于今天
     record_id = client.post(
+        "/api/records",
+        json={
+            "record_date": TODAY.isoformat(),
+            "wake_date": tomorrow,
+            "sleep_time": "23:30",
+            "wake_time": "07:30",
+        },
+    ).json()["id"]
+    # 昨晚那一夜：入睡日=昨天、起床日=今天 → 三餐记录属于昨天，今天的打卡不该动它
+    other_id = client.post(
         "/api/records",
         json={
             "record_date": yesterday,
@@ -843,14 +783,62 @@ def test_checkin_writes_back_to_the_wake_day_record(client: TestClient) -> None:
         },
     ).json()["id"]
 
-    body = client.post(
-        "/api/advice/checkin",
-        json={"meal": "breakfast", "eaten": False, "refused": True},
-    ).json()
-    assert body["refused"] is True
+    body = client.post("/api/advice/checkin", json={"meal": "breakfast", "eaten": False}).json()
+    assert body["ok"] is True
 
-    row = next(
-        item for item in client.get("/api/records").json()["items"] if item["id"] == record_id
+    rows = {item["id"]: item for item in client.get("/api/records").json()["items"]}
+    assert rows[record_id]["meal_breakfast"] is False
+    assert rows[record_id]["meal_date"] == TODAY.isoformat()
+    assert rows[other_id]["meal_breakfast"] is True
+    assert rows[other_id]["meal_date"] == yesterday
+
+
+def test_meal_date_defaults_from_the_wake_date(client: TestClient) -> None:
+    """三餐日期：跨夜记录=入睡日；同日入睡（凌晨）时=入睡日−1；显式传就照传（限相邻两天）。"""
+    username = "mealdates"
+    _make_user(username)
+    _login(client, username)
+    yesterday = (TODAY - timedelta(days=1)).isoformat()
+
+    crossing = client.post(
+        "/api/records",
+        json={
+            "record_date": yesterday,
+            "wake_date": TODAY.isoformat(),
+            "sleep_time": "23:30",
+            "wake_time": "07:30",
+        },
+    ).json()
+    assert crossing["meal_date"] == yesterday
+
+    same_day = client.post(
+        "/api/records",
+        json={"record_date": yesterday, "sleep_time": "00:30", "wake_time": "08:30"},
+    ).json()
+    assert same_day["wake_date"] == yesterday
+    assert same_day["meal_date"] == (TODAY - timedelta(days=2)).isoformat()
+
+    # 同日入睡默认是“入睡日−1”，显式写入睡日本身也应该被接受
+    explicit = client.post(
+        "/api/records",
+        json={
+            "record_date": (TODAY - timedelta(days=2)).isoformat(),
+            "sleep_time": "00:30",
+            "wake_time": "08:30",
+            "meal_date": (TODAY - timedelta(days=2)).isoformat(),
+        },
+    ).json()
+    assert explicit["meal_date"] == (TODAY - timedelta(days=2)).isoformat()
+
+    bad = client.post(
+        "/api/records",
+        json={
+            "record_date": yesterday,
+            "wake_date": TODAY.isoformat(),
+            "sleep_time": "23:30",
+            "wake_time": "07:30",
+            "meal_date": (TODAY - timedelta(days=3)).isoformat(),
+        },
     )
-    assert row["meal_breakfast"] is False
-    assert row["wake_date"] == TODAY.isoformat()
+    assert bad.status_code == 400
+    assert "invalid_meal_date" in str(bad.json())

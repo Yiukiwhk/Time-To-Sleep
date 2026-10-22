@@ -28,22 +28,15 @@ router = APIRouter(tags=["advice"])
 
 
 def _meal_plan_state(db, user: User, today: date) -> dict:
+    """今天 / 昨天 / 明天早餐的三餐状态 + 最近 7 天计数（前端据此写「为什么提前」）。"""
     history = advice_service.meal_history(db, user.id, today=today)
-    streak = advice_service.breakfast_skipped_streak(history, today=today)
-    today_state = advice_service.breakfast_state_today(history, today=today)
-    refused = today_state == "refused"
+    snapshot = advice_service.meal_plan_snapshot(history, today=today)
     return {
-        "breakfast_skipped_streak": streak,
-        "lunch_shift_minutes": advice_service.lunch_shift_minutes(streak),
-        # 今天早餐已经标成"跳过/不想吃"：拒绝早餐的预测据此决定阶梯要不要再 +1
-        "breakfast_missed_today": today_state in ("skipped", "refused"),
-        # "不想吃"：今天这一天额外把晚餐也往前挪的分钟数（前端用它加提示）
-        "refused_breakfast_today": refused,
-        "dinner_shift_minutes": (
-            advice_service.REFUSED_BREAKFAST_SHIFT if refused else 0
-        ),
+        **snapshot,
+        "days": history["days"],
+        "summary": history["summary"],
         "history": history["summary"],
-        "recent": history["days"][-advice_service.MEAL_HISTORY_DAYS :],
+        "recent": history["days"],
     }
 
 
@@ -95,30 +88,11 @@ def _state(db, user: User, *, today: date, with_auto: bool = True) -> dict:
             auto_recomputed = True
             dev = plan_service.deviation(payload, records, today)
 
-    # 今天早餐"不想吃"是读取时的临时叠加（只改今天这一天，不重写快照）：
-    # 必须在 day_for 之前应用到 payload 上，今天卡片与方案列表第一行才会一致。
-    # 注意这里用**实时**算出来的 meal_plan，而不是快照里那份：连续天数与"不想吃"
-    # 都是"今天"的事实，快照里的那份是生成计划那一刻的旧值（打卡后刷新页面会看不见变化）
+    # 三餐记录是「今天的实时事实」：读取时按它重算今天与明天两行（不改写快照）
+    history = advice_service.meal_history(db, user.id, today=today)
+    payload = advice_service.apply_meal_overlay(payload, history, today=today)
     meal_plan = _meal_plan_state(db, user, today)
-    if meal_plan.get("refused_breakfast_today"):
-        payload = advice_service.apply_refused_breakfast_overlay(
-            payload,
-            today=today,
-            lunch_shift=int(meal_plan.get("lunch_shift_minutes") or 0),
-            refused=True,
-        )
-
     day = advice_service.day_for(payload.get("plan") or [], today)
-    # "点了'不想吃早餐'会变成几点"的预测随今日卡片一起下发（与打卡结果同源）：
-    # 前端在按钮下方常驻提示，点击的瞬间先把数字改掉，等响应回来再校准
-    preview = advice_service.refusal_preview(
-        payload,
-        today=today,
-        streak=int(meal_plan.get("breakfast_skipped_streak") or 0),
-        missed_today=bool(meal_plan.get("breakfast_missed_today")),
-    )
-    if day is not None and preview:
-        day = {**day, "refusal_preview": preview}
     return {
         "has_plan": True,
         "plan": payload,

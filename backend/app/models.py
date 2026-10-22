@@ -108,6 +108,9 @@ class SleepRecord(Base, TimestampMixin):
     """睡眠记录。时间字段统一存 "HH:MM"，日期字段存 "YYYY-MM-DD"。
 
     record_date 是入睡日历日，wake_date 是起床日历日（表单默认 = 入睡日 + 1）。
+    meal_date 是"三餐记录"所属的那一天：默认等于入睡日；跨零点入睡（入睡与醒来同一天）
+    时默认前移一天，因为那一晚的三餐其实是在前一天吃的。算法按它配对"那天吃没吃某一餐"，
+    见 services/advice.py 的 meal_history()。
     老库里的 wake_date 是迁移时按"起床时刻 <= 入睡时刻 → 次日"补出来的；
     读取时若该列为空（例如迁移前就存在的行、或直接写库的测试数据）仍按同一规则推导，
     见 core/timing.py 的 derive_wake_date()。
@@ -129,6 +132,9 @@ class SleepRecord(Base, TimestampMixin):
     record_date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)  # YYYY-MM-DD
     # 起床日历日。老库补列时没有 NOT NULL 默认值，所以这里可空；新记录一律写入。
     wake_date: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)  # YYYY-MM-DD
+    # 三餐记录所属日。同样因为老库补列而可空；读到时为空就按 record_date 处理
+    # （见 services/advice.py 的 meal_day_of），新记录一律写入。
+    meal_date: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)  # YYYY-MM-DD
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="records")

@@ -119,33 +119,32 @@ s_i  = D · φ(u) / Σφ          再按“累计取整”分配成整数分钟�
 - **“起床后 X 分钟进食”这类钟点窗口在文献里并不存在**，它们是工程默认值；文献只支持
   “三餐作为节律锚点、不做相位移动”这一条，见 [REFERENCES.md](REFERENCES.md) 的 2025 年综述条目。
 
-## 5. 午餐前移规则与连续未吃早餐计数
+## 5. 三餐提前规则：只看昨天与当天
 
-- 用 `POST /api/advice/checkin`（`meal` + `eaten`，可选 `date` 与 `refused`）记录“这一餐吃了没有”；
-  记录会写回当天的睡眠记录。每餐的状态因此有四种：`eaten` / `skipped` / `refused` / `unknown`。
-- **连续未吃早餐的天数**（`streak`）达到阈值后，午餐建议开始前移：前移量按 streak 递增
-  （60 / 90 / 120 分钟），结果体现在 `MealPlan.shifted_minutes` 上。下限有两个：“不早于起床后
-  2 小时”与社会时钟窗口的起点 **11:00**（作息正常时），所以前移在窗口里能走多少走多少。
-- **“不想吃早餐”**（`meal="breakfast"` + `eaten=false` + `refused=true`）：与“跳过”一样计入
-  连续未吃早餐，并且**当天的午餐与晚餐一起提前 60 分钟**（`REFUSED_BREAKFAST_SHIFT`）——
-  晚餐提前 60，午餐再因为“取中点”跟着往前 30，所以阶梯从零起步时实测午餐共提前 **90** 分钟；
-  若午餐已贴到窗口起点（11:00）或起床后 2 小时的下限，则实际位移相应变小。规则只作用于
-  计划第一行（今天），明天起的建议不变。
-- “不想吃”不重写已保存的计划快照，而是在读取时叠加（`apply_refused_breakfast_overlay()`）：
-  否则 `plan_meta.replans`（“已重算 N 次”）会被打卡动作悄悄推高，历史计划也会被改写。
-  点“已吃”即撤销（同一行 `refused` 写回 `false`）。
-- **“点了会发生什么”先算出来**：`refusal_preview(payload, today, streak, missed_today)` 在生成/读取
-  计划时就把“现在点不想吃”的结果算一遍（内部在深拷贝上叠加，再跑一次 `day_for`），随今日卡片
-  以 `today.refusal_preview` 下发。它按**点完之后**的阶梯算（`streak if missed_today else streak + 1`）——
-  这一点被 `::test_refusal_preview_matches_the_real_checkin` 抓过一次：早先用点击前的阶梯，
-  窗口有空间时预测会比真实落库的时间差一格。所以界面上点击后立刻显示的数字，与请求回来的
-  数字必须逐字段相同（`best_time` / `window_start` / `window_end`）。
-- **文案约束**：带参数的句子（`{streak}` / `{shift}`）一律由前端用数字字段拼（`tp()`），后端
-  只返回不带参数的文案键 —— 否则页面上会原样显示 `{streak}`。
-- 测试：`::test_lunch_shifts_earlier_when_breakfast_skipped`、
-  `::test_lunch_midpoint_keeps_gaps_reasonable_on_long_days`、
-  `::test_checkin_eaten_true_writes_back`、`::test_refused_breakfast_pulls_today_meals_earlier`、
-  `::test_refusal_preview_matches_the_real_checkin`。
+- 每餐的状态有三种：`eaten` / `skipped` / `unknown`（早先还有个「不想吃」按钮，它的强度已经并入
+  `skipped`，历史行里的 `refused` 一律按 `skipped` 读）。
+- 每条记录带一个**三餐记录日** `meal_date`（默认等于入睡日；入睡与起床在同一天时默认取前一天，
+  也就是“凌晨那一觉属于前一天”）：三餐按这个日期归档，`POST /api/advice/checkin` 也写在这一天。
+- 提前规则只作用于**今天**与**明天的早餐**，更远的日子没有数据就不动：
+
+  | 触发 | 影响 | 分钟 |
+  | --- | --- | --- |
+  | 昨天晚餐 `skipped` | 今天早餐 | −30（不早于起床后 5 分钟） |
+  | 今天早餐 `skipped` | 今天午餐 | −60 |
+  | 今天早餐 `skipped` | 今天晚餐 | −60 |
+  | 今天午餐 `skipped` | 今天晚餐 | 再 −30（与早餐叠加，最多 −90） |
+  | 今天晚餐 `skipped` | 明天早餐 | −30 |
+
+- 每餐输出 `shifted_minutes` 与 `shift_reason`（`yesterday_dinner` / `breakfast` / `lunch` /
+  `breakfast_and_lunch`），前端只负责把原因翻成一句话，数字一律来自后端。
+- 越界仍沿用第 4 节的保序约束：午餐不早于早餐后 30 分钟、晚餐不早于午餐后 2 小时；午餐贴到现实
+  窗口起点 11:00 时不再往前，所以实际位移可能小于上表的分钟数。
+- 打卡不重写已保存的计划快照，而是在读取时重算今天与明天两行（`apply_meal_overlay()`），否则
+  `plan_meta.replans`（“已重算 N 次”）会被打卡动作悄悄推高。
+- 测试：`::test_today_breakfast_skip_shifts_lunch_and_dinner`、
+  `::test_meals_shift_only_from_yesterday_and_today`、`::test_old_refused_flag_behaves_like_skipped`、
+  `::test_meal_plan_snapshot_follows_the_records`、`::test_meals_belong_to_the_meal_date`、
+  `::test_checkin_writes_back_to_the_meal_day_record`。
 
 ## 6. 偏离三档
 
@@ -238,8 +237,9 @@ s_i  = D · φ(u) / Σφ          再按“累计取整”分配成整数分钟�
 | 单日输入上限 | **120 分钟/天** | `fast` 档的可行判定与输入校验用；产品侧初始要求 |
 | 早餐窗口 | 起床后 **15–30** 分钟 | 工程默认值（文献无钟点窗口） |
 | 午餐起点 | 早餐与晚餐的**中点**，整体提前 **60** 分钟，夹进 [起床+120, 晚餐−240] 分钟 | 工程默认值；早先锚在“起床+180”，白天越长间隔越大（19 小时白天可达 12.5 小时），故改为取中点 |
-| 午餐窗口长 | **120** 分钟 | 与早餐/晚餐窗口等长口径一致，可因连续未吃早餐前移 |
+| 午餐窗口长 | **120** 分钟 | 与早餐/晚餐窗口等长；可按第 5 节的三餐规则整体前移 |
 | 晚餐窗口 | 窗口长 **90** 分钟，起点为睡前 **270** 分钟（3.5 小时 + 整体提前 1 小时） | 工程默认值，锚在睡眠侧 |
+| 三餐提前量 | 早餐 **30**、午餐 **60**、晚餐 **60**（午餐再跳时叠加到 **90**） | 只看昨天与当天，见第 5 节 |
 | 现实窗口·午餐 | 起床 ≤ **15:00** → 午餐就近靠拢进 **11:00–15:00** | `NORMAL_WAKE_UNTIL` / `LUNCH_NORMAL_WINDOW`，社会时钟参考 |
 | 现实窗口·晚餐 | 入睡不晚于次日 **06:00**（或当天 17:00 之后）→ 晚餐就近靠拢进 **17:00–22:00** | `NORMAL_SLEEP_UNTIL` / `DINNER_NORMAL_WINDOW`，越界则跳过窗口 |
 | 三餐开关 | `meal_breakfast` / `meal_lunch` / `meal_dinner` | 用户级设置（`/api/settings`），默认开启 |

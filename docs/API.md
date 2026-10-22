@@ -323,8 +323,15 @@
   "steps": {"cap_minutes": 60, "hard_cap_minutes": 120, "shape": {"alpha": 0.6, "power": 1.0},
             "first_step_minutes": 53, "max_step_minutes": 53, "last_step_minutes": 33,
             "feasible": true, "suggested_days": 7},
-  "meal_plan": {"breakfast_skipped_streak": 0, "lunch_shift_minutes": 0, "refused_breakfast_today": false, "dinner_shift_minutes": 0,
-                "history": {"breakfast": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}, "lunch": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}, "dinner": {"eaten": 5, "skipped": 0, "refused": 0, "unknown": 2}},
+  "meal_plan": {
+    "today": {"date": "2026-02-20", "breakfast": "eaten", "lunch": "unknown", "dinner": "unknown"},
+    "yesterday": {"date": "2026-02-19", "breakfast": "eaten", "lunch": "eaten", "dinner": "skipped"},
+    "tomorrow_breakfast": "unknown",
+    "days": [{"date": "2026-02-19", "meals": {"breakfast": {"state": "eaten", "source": "record"}, "lunch": {"state": "eaten", "source": "record"}, "dinner": {"state": "skipped", "source": "checkin"}}}],
+    "summary": {"breakfast": {"eaten": 1, "skipped": 0, "unknown": 6}, "lunch": {"eaten": 1, "skipped": 0, "unknown": 6}, "dinner": {"eaten": 0, "skipped": 1, "unknown": 6}},
+    "history": {"breakfast": {"eaten": 1, "skipped": 0, "unknown": 6}, "lunch": {"eaten": 1, "skipped": 0, "unknown": 6}, "dinner": {"eaten": 0, "skipped": 1, "unknown": 6}},
+    "recent": [{"date": "2026-02-19", "meals": {"breakfast": {"state": "eaten", "source": "record"}, "lunch": {"state": "eaten", "source": "record"}, "dinner": {"state": "skipped", "source": "checkin"}}}]
+  },
                 "recent": [{"date": "2026-02-20", "meals": {"breakfast": {"state": "eaten", "source": "record"}, "lunch": {"state": "eaten", "source": "record"}, "dinner": {"state": "unknown", "source": null}}]},
   "warnings": [],
   "notices": [{"code": "advice.notice.short_plan", "days": 5}],
@@ -352,12 +359,6 @@
     "index": 0, "date": "2026-02-20", "sleep_time": "23:45", "wake_time": "07:05",
     "duration_minutes": 440, "shift_sleep_minutes": -35, "shift_wake_minutes": -35,
     "step_minutes": 35, "meals": {}, "timeline": {}, "tips": [],
-    "refusal_preview": {
-      "date": "2026-02-20",
-      "lunch": {"best_time": "11:00", "window_start": "11:00", "window_end": "13:00"},
-      "dinner": {"best_time": "18:15", "window_start": "18:15", "window_end": "19:45"},
-      "lunch_shift_minutes": 60,
-      "dinner_shift_minutes": 60
     }
   },
   "timeline": {"axis_start": "05:05", "axis_end": "01:45", "span_minutes": 1240, "sleep_label": "23:45–07:05", "sleep_minutes": 1000, "items": [{"kind": "sleep", "segment": "morning", "start": 0, "end": 120, "start_time": "05:05", "end_time": "07:05", "partial": true}, {"kind": "sleep", "segment": "night", "start": 1120, "end": 1240, "start_time": "23:45", "end_time": "01:45", "partial": true}]},
@@ -374,12 +375,12 @@
 前端把两截标成「睡眠前段 / 睡眠后段」，并在轴上的睡眠徽标里写「跨零点，轴两端相接」
 （数据结构与跨零点处理见 [ALGORITHM.md](ALGORITHM.md) 第 9 节）。
 
-今日卡片上另有一个 **`today.refusal_preview`**（只有今天有）：它预先算好“现在点『不想吃早餐』会把
-午餐 / 晚餐挪到几点”，字段与 `meals.*` 同构（`best_time` / `window_start` / `window_end`），外加
-`lunch_shift_minutes` / `dinner_shift_minutes`。前端据此在**点击瞬间**就改掉卡片上的数字（实测
-25ms，而这次打卡请求往返约 1.5s），不用等响应、也不用刷新页面；预测值与打卡后真正落库的时间
-一致，由 `tests/test_advice_engine.py::test_refusal_preview_matches_the_real_checkin` 守着。
-当天已经是“不想吃”状态时前端不再显示这句提示（再点一次没有意义）。
+**三餐为什么会提前**：日卡的 `meals.<meal>` 多一个 `shift_reason`（`yesterday_dinner` /
+`breakfast` / `lunch` / `breakfast_and_lunch`）与 `shifted_minutes`。规则只看**昨天与当天**：昨天晚餐
+没吃 → 今天早餐提前 30 分钟；今天早餐没吃 → 今天午餐与晚餐各提前 60 分钟；今天午餐跳过 → 晚餐再
+提前 30 分钟（与早餐叠加，最多 90 分钟）；今天晚餐跳过 → 明天早餐提前 30 分钟。前端把
+`shift_reason` 翻成一句“为什么提前”，三餐区还常驻一行「算法会根据三餐情况动态调整建议」。
+规则细节见 [ALGORITHM.md](ALGORITHM.md) 第 5 节。
 
 `steps` 描述的是**曲线本身**，而不是某张日卡：
 

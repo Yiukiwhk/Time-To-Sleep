@@ -152,10 +152,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 | `deviation` | 1440×1240 | 偏离弹窗打开、提供 3 种策略 |
 | `records` | 1440×1240 | 真点“新增记录”并提交（断言发出 `POST /api/records` 且 201）、保存后弹窗关闭、默认区间为最近 7 天、列表有行、入睡日期默认昨天、起床日期默认入睡日 +1 且跟着入睡日期走、提交体里带 `wake_date`、表格同时显示两个日期、表单写明三餐属于起床日 |
 | `plan` | 1440×1240 | 每日方案行 ≥2、每天迷你时间图条数 ≥3 |
-| `refused` | 1440×1240 | 早餐卡片提供「不想吃」按钮 → 真点提交打卡（`POST /api/advice/checkin`）、晚餐精确提前 60 分钟、午餐不推后（有空间时提前）、按钮进入激活态、点「吃了」撤销后恢复、快速模式说明固定单日并隐藏天数滑块 |
+| `refused` | 1440×1240 | 点早餐卡的「跳过」→ 真发 `POST /api/advice/checkin`、今天午餐不推后、晚餐更早、每餐带 `data-meal-shift` 原因、三餐区有统一说明、页面上不再有「不想吃」按钮、点「已吃」还原 |
 | `mobile` | 390×900 | 窄屏改用纵向时间图、时间图条 ≥4、无横向溢出 |
 
-每一档都会顺带跑十四条“用户看得到”的回归护栏，任何一条不过整体失败：
+每一档都会顺带跑十五条“用户看得到”的回归护栏，任何一条不过整体失败：
 
 1. **没有漏翻的 i18n key**：正文里不允许出现 `advice.* / records.* / common.*` 这类原始 key。
 2. **没有未填充的占位符**：正文里不允许出现 `{streak}` 这种花括号参数（`tp()` 漏传参数的典型症状）。
@@ -257,6 +257,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
    只会在用户点击时抛 `ReferenceError`（曾经“新增记录点了没反应”就是这个原因），验收里
    `-Modes records` 那档会真点一次表单兜底。
 5. **保持 UTF-8 无 BOM + CRLF**（与仓库其它文件一致），中文注释不要用 ANSI/GBK 写回。
+
+15. **三餐只看昨天与当天**：记录页的「三餐记录」带一个独立的三餐日期（默认入睡日，凌晨那一觉默认
+    前移一天），算法只按“昨天晚餐 / 今天早餐 / 今天午餐 / 今天晚餐”四条规则移动今天与明天的时间，
+    不再累计连续天数。探针把点「跳过」前后午/晚餐的时间、`data-meal-shift` 的原因码、统一说明文案、
+    打卡响应里的 `meal_plan.today` 放进 `refused`，`refused` 档据此断言（午餐不推后、晚餐更早、
+    至少两条原因、说明非空、打卡记为 `skipped`、点「已吃」还原）。后端侧由
+    `::test_today_breakfast_skip_shifts_lunch_and_dinner` 等 6 个用例守着。
 
 ## Windows 侧踩坑
 

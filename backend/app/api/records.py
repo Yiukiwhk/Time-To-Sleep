@@ -14,7 +14,13 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..core.timing import derive_wake_date, parse_hhmm, parse_iso_date, span_minutes
+from ..core.timing import (
+    derive_meal_date,
+    derive_wake_date,
+    parse_hhmm,
+    parse_iso_date,
+    span_minutes,
+)
 from ..db import get_db, run_with_retry, write_session
 from ..deps import RequestContext, client_meta, current_user
 from ..errors import ApiError
@@ -107,6 +113,27 @@ def _check_wake_date(
     return text
 
 
+def _default_meal_date(record_date: str, wake_date: str | None) -> str:
+    """三餐记录的默认日期：入睡日；入睡与醒来同一天（跨零点入睡）则前一天。
+
+    为什么是前一天：那一晚的三餐其实都在前一天吃完了（晚餐吃完才睡、早餐是醒来之后
+    新的一天的），所以"进入睡眠那天"的三餐要往前算一天。
+    """
+    # 与建议服务共用同一套默认规则：跨零点入睡 → 三餐算在前一天
+    return derive_meal_date(record_date, wake_date)
+
+
+def _check_meal_date(record_date: str, wake_date: str | None, meal_date: str | None) -> str:
+    """三餐日期：缺省时按默认规则补；显式给出时只允许"入睡日"或"入睡日的前一天"。"""
+    if not meal_date:
+        return _default_meal_date(record_date, wake_date)
+    text = _check_record_date(meal_date)
+    gap = (parse_iso_date(record_date) - parse_iso_date(text)).days
+    if gap < 0 or gap > 1:
+        raise ApiError(400, "error.invalid_meal_date", code="error.invalid_meal_date")
+    return text
+
+
 def serialize_record(record: SleepRecord, *, username: str | None = None) -> SleepRecordOut:
     try:
         duration = span_minutes(
@@ -117,6 +144,12 @@ def serialize_record(record: SleepRecord, *, username: str | None = None) -> Sle
     payload = SleepRecordOut.model_validate(record)
     payload.duration_minutes = max(0, duration)
     payload.username = username
+    if not payload.meal_date:
+        # 迁移前直接写库的老行可能没有这一列：按同一套默认规则补出来，别让前端拿到 null。
+        try:
+            payload.meal_date = _default_meal_date(record.record_date, record.wake_date)
+        except Exception:  # noqa: BLE001 - 日期脏数据不该导致 500
+            payload.meal_date = record.record_date
     return payload
 
 
@@ -210,6 +243,7 @@ def create_my_record(
     wake_date = _check_wake_date(
         record_date, payload.wake_date, payload.sleep_time, payload.wake_time
     )
+    meal_date = _check_meal_date(record_date, wake_date, payload.meal_date)
 
     def _write() -> int:
         with write_session() as session:
@@ -222,6 +256,7 @@ def create_my_record(
                 meal_dinner=payload.meal_dinner,
                 record_date=record_date,
                 wake_date=wake_date,
+                meal_date=meal_date,
                 note=payload.note,
             )
             session.add(record)
@@ -232,7 +267,7 @@ def create_my_record(
     _touch_write(user.id)
     logkit.log_event(
         "record_create",
-        f"user {user.username} created record #{record_id} for {record_date} -> {wake_date}",
+        f"user {user.username} created record #{record_id} for {record_date} -> {wake_date} (meals {meal_date})",
         user_id=user.id,
         username=user.username,
         ip=ctx.ip,
@@ -276,6 +311,23 @@ def update_my_record(
     )
     if effective_wake_date != record.wake_date:
         data["wake_date"] = effective_wake_date
+    # 三餐日期：显式改了就校验；没改但改了那两个日期，就跟表单一样重算默认值；
+    # 其他字段的编辑不该悄悄把用户挑过的三餐日期改掉。
+    if "meal_date" in data:
+        meal_input = data["meal_date"]
+        effective_meal_date = (
+            _check_meal_date(effective_date, effective_wake_date, meal_input)
+            if meal_input
+            else _default_meal_date(effective_date, effective_wake_date)
+        )
+    elif "record_date" in data or "wake_date" in data:
+        effective_meal_date = _default_meal_date(effective_date, effective_wake_date)
+    else:
+        effective_meal_date = record.meal_date or _default_meal_date(
+            effective_date, effective_wake_date
+        )
+    if effective_meal_date != record.meal_date:
+        data["meal_date"] = effective_meal_date
 
     def _update() -> None:
         with write_session() as session:

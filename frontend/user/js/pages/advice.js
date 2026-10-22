@@ -120,41 +120,23 @@ function deviationLineHtml(data = {}) {
 
 /* ------------------------------ 今日卡片 ------------------------------ */
 
-function mealHintHtml(mealPlan) {
-  const streak = Number(mealPlan?.breakfast_skipped_streak) || 0;
-  const shift = Number(mealPlan?.lunch_shift_minutes) || 0;
-  if (!streak || !shift) return "";
-  return `<p class="tiny muted">${escapeHtml(
-    tp("advice.meal.lunch_advanced", { streak, shift })
-  )}</p>`;
+function mealNoteHtml() {
+  // 三餐会按最近的记录动态前移：这里只放一句总说明，
+  // 具体哪一餐因为什么提前，写在各餐自己的 shift 行里。
+  return `<p class="tiny muted" data-meal-note>${escapeHtml(t("advice.meal.note.dynamic"))}</p>`;
 }
 
-function todayMealHtml(key, meal, mealPlan, canCheckin, preview) {
+function todayMealHtml(key, meal, mealPlan, canCheckin) {
   const state = mealStateOf(mealPlan, key);
   const best = meal.best_time || meal.time || "--:--";
   const window = `${meal.window_start || "--:--"}–${meal.window_end || "--:--"}`;
   const note = meal.note ? `<p class="tiny muted">${escapeHtml(t(meal.note))}</p>` : "";
-  // 晚餐被"不想吃早餐"带着提前时，给一句说明：否则用户只看到时间变了却不知道为什么
-  const dinnerShift = Number(mealPlan?.dinner_shift_minutes) || 0;
-  const dinnerHint =
-    key === "dinner" && dinnerShift > 0
-      ? `<p class="tiny muted">${escapeHtml(tp("advice.meal.dinner_advanced", { shift: dinnerShift }))}</p>`
-      : "";
-  // "不想吃"只在早餐出现：它和"跳过"一样算没吃，但额外把今天的午餐与晚餐一起提前
-  const refusedBtn =
-    key === "breakfast"
-      ? `<button class="btn btn-sm checkin-btn${state === "refused" ? " active-refused" : ""}" data-meal="${key}" data-eaten="0" data-refused="1">${escapeHtml(
-          t("advice.meal.checkin.refused")
-        )}</button>`
-      : "";
-  // 点之前就告诉用户"点了午餐晚餐会变成几点"：值来自后端算好的预测，和点下去的结果同源
-  const previewLine =
-    key === "breakfast" && state !== "refused" && preview?.lunch?.best_time
-      ? `<p class="tiny meal-preview" data-refusal-preview>${escapeHtml(
-          tp("advice.meal.refusal_preview", {
-            lunch: preview.lunch.best_time,
-            dinner: preview.dinner?.best_time || "--:--",
-          })
+  // 这一餐为什么提前：后端给结构化原因，前端只负责翻译
+  const shiftMinutes = Number(meal.shifted_minutes) || 0;
+  const shiftLine =
+    shiftMinutes > 0 && meal.shift_reason
+      ? `<p class="tiny muted" data-meal-shift="${escapeHtml(meal.shift_reason)}">${escapeHtml(
+          tp(`advice.meal.shift.${meal.shift_reason}`, { shift: shiftMinutes })
         )}</p>`
       : "";
   const checkin = canCheckin
@@ -165,7 +147,6 @@ function todayMealHtml(key, meal, mealPlan, canCheckin, preview) {
         <button class="btn btn-sm checkin-btn${state === "skipped" ? " active-skip" : ""}" data-meal="${key}" data-eaten="0">${escapeHtml(
           t("advice.meal.checkin.skipped")
         )}</button>
-        ${refusedBtn}
         ${
           state === "unknown"
             ? `<span class="tiny muted">${escapeHtml(t("advice.meal.unknown"))}</span>`
@@ -188,9 +169,8 @@ function todayMealHtml(key, meal, mealPlan, canCheckin, preview) {
       <strong class="mono" data-window>${escapeHtml(window)}</strong>
     </div>
     ${note}
-    ${dinnerHint}
+    ${shiftLine}
     ${checkin}
-    ${previewLine}
   </div>`;
 }
 
@@ -237,9 +217,9 @@ function todayCardHtml(data) {
       meals.length
         ? `<div class="today-meals">
             <div class="row-wrap"><span class="label">${escapeHtml(t("advice.today.meals"))}</span>
-              ${mealHintHtml(data.meal_plan)}</div>
+              ${mealNoteHtml()}</div>
             <div class="today-meal-grid" data-meals>${meals
-              .map((key) => todayMealHtml(key, day.meals[key], data.meal_plan, canCheckin, day.refusal_preview))
+              .map((key) => todayMealHtml(key, day.meals[key], data.meal_plan, canCheckin))
               .join("")}</div>
           </div>`
         : ""
@@ -804,14 +784,12 @@ function tipsHtml(tips = []) {
 function mealsHtml(day) {
   const keys = enabledMeals(day.meals);
   if (!keys.length) return "";
-  // 午餐提前的解释句带 {streak}/{shift} 两个参数，缺一不可，否则会把占位符直接显示出来
-  const streak = Number(view.state?.meal_plan?.breakfast_skipped_streak) || 0;
   return `<div class="day-meals">${keys
     .map((key) => {
       const meal = day.meals[key];
       const shifted = Number(meal.shifted_minutes) || 0;
       const best = meal.best_time || meal.time || "--:--";
-      // best_time 是主数字，区间退到次要位置；后端改成提前时用午餐提示说明
+      // best_time 是主数字，区间退到次要位置；被三餐记录带着提前时挂一个原因徽标
       return `<span class="day-meal">
         <span class="dm-name">${mealIcon(key)} ${escapeHtml(mealName(key))}</span>
         <span class="dm-best mono">${escapeHtml(best)}</span>
@@ -819,9 +797,9 @@ function mealsHtml(day) {
           meal.window_end || "--:--"
         )}</span>
         ${
-          shifted > 0 && key === "lunch" && streak > 0
-            ? `<span class="badge badge-warn">${escapeHtml(
-                tp("advice.meal.lunch_advanced", { streak, shift: shifted })
+          shifted > 0 && meal.shift_reason
+            ? `<span class="badge badge-warn" data-meal-shift="${escapeHtml(meal.shift_reason)}">${escapeHtml(
+                tp(`advice.meal.shift.${meal.shift_reason}`, { shift: shifted })
               )}</span>`
             : ""
         }
@@ -1327,21 +1305,6 @@ function mealTimeSnapshot(root) {
 }
 
 /** 点击瞬间先把数字换成后端算好的预测值（网络往返期间用户已经看到结果） */
-function applyPreviewTimes(root, preview) {
-  if (!preview) return;
-  SHIFTED_MEALS.forEach((key) => {
-    const card = mealCardOf(root, key);
-    const target = preview[key];
-    if (!card || !target?.best_time) return;
-    const best = card.querySelector("[data-best]");
-    if (best) best.textContent = target.best_time;
-    const win = card.querySelector("[data-window]");
-    if (win) {
-      win.textContent = `${target.window_start || "--:--"}–${target.window_end || "--:--"}`;
-    }
-    card.classList.add("tm-flash");
-  });
-}
 
 /** 时间真的变了才高亮 2.6 秒，并补一行"旧 → 新"，让变化一眼可见 */
 function flashMovedTimes(root, before) {
@@ -1408,17 +1371,12 @@ async function checkin(root, btn) {
   if (view.pending) return;
   const meal = btn.dataset.meal;
   const eaten = btn.dataset.eaten === "1";
-  const refused = btn.dataset.refused === "1";
   const date = view.state?.today?.date || view.options?.today || null;
   const before = mealTimeSnapshot(root);
-  const preview = view.state?.today?.refusal_preview;
   view.pending = true;
   btn.disabled = true;
-  // 点击的那一瞬间先把午餐/晚餐改成预测值：等网络往返时用户已经看到结果，
-  // 不用等刷新、也不用往下滚去找那两张卡片。响应回来后再用真实值校准。
-  if (refused) applyPreviewTimes(root, preview);
   try {
-    const body = await adviceApi.checkin({ meal, eaten, date, refused });
+    const body = await adviceApi.checkin({ meal, eaten, date });
     mergeCheckinState(body);
     renderTodayOnly(root, body.today);
     flashMovedTimes(root, before);

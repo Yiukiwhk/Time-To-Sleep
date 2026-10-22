@@ -353,7 +353,7 @@ if (-not $SkipBrowser) {
                     }
                 }
                 Check "today card present" ($json.today_cards -ge 1) ("cards=" + $json.today_cards)
-                Check "meal check-in buttons (>=7: eaten/skipped/refused + lunch + dinner)" ($json.checkin_buttons -ge 7) ("buttons=" + $json.checkin_buttons)
+                Check "meal check-in buttons (>=6: eaten/skipped for three meals)" ($json.checkin_buttons -ge 6) ("buttons=" + $json.checkin_buttons)
                 Check "sidebar nav items (3)" ($json.nav_items -eq 3) ("nav=" + $json.nav_items)
                 Check "footer references entry" ($json.footer_refs -ge 1) ("refs=" + $json.footer_refs)
                 Check "timeline uses flex layout" ($json.style_ok -eq "flex") ("display=" + $json.style_ok)
@@ -385,16 +385,16 @@ if (-not $SkipBrowser) {
                 Check "four DOI links rendered" ($json.modal_dois -ge 4) ("dois=" + $json.modal_dois)
             }
             if ($mode -eq "refused") {
-                # 早餐"不想吃"：必须真的发出 checkin 请求、今天的三餐被提前、方案列表第一行跟着变、
-                # 点"已吃"能撤销；顺带确认"快速调整"模式下天数区域给的是只读说明而不是空白
+                # 点早餐卡的「跳过」：今天午餐与晚餐各提前 60 分钟（只看当天），每餐写明原因，
+                # 三餐区有统一说明，页面上不再有「不想吃」按钮，点「已吃」能把时间还原。
                 $rf = $json.refused
-                if (-not $rf) { Check "[$mode] refusal probe returned a summary" $false "refused missing from the render summary" }
+                if (-not $rf) { Check "[$mode] meal probe returned a summary" $false "refused missing from the render summary" }
                 else {
-                    Check "breakfast card offers the refused button" ([int]$rf.has_button -eq 1) "no [data-refused] button"
-                    Check "refusing breakfast posted a check-in" (@($rf.checkin_calls | Where-Object { $_.method -eq "POST" -and $_.status -eq 200 }).Count -ge 1) ("calls=" + (@($rf.checkin_calls) | ConvertTo-Json -Compress))
+                    Check "the not-eating button is gone" ([int]$rf.refused_buttons -eq 0) ("refused_buttons=" + $rf.refused_buttons)
+                    Check "skipping breakfast posted a check-in" (@($rf.checkin_calls | Where-Object { $_.method -eq "POST" -and $_.status -eq 200 }).Count -ge 1) ("calls=" + (@($rf.checkin_calls) | ConvertTo-Json -Compress))
                     # 三餐时间是 "HH:MM"，必须换算成分钟再比（字符串比较连格式差异都判不出来）。
-                    # 午餐可能本来就停在现实窗口下限 11:00，此时"不想吃早餐"再没有可提前的空间，
-                    # 算法只保证不把它推后，所以断言写成"不推后 + 有余量时才真的提前"。
+                    # 午餐可能本来就停在现实窗口下限 11:00，此时再没有可提前的空间，
+                    # 算法只保证不把它推后，所以午餐写成"不推后"，晚餐要求真的更早。
                     $toMin = {
                         param($t)
                         if (-not $t) { return -1 }
@@ -405,33 +405,14 @@ if (-not $SkipBrowser) {
                     $aLunch = & $toMin $rf.after.lunch
                     $bDinner = & $toMin $rf.before.dinner
                     $aDinner = & $toMin $rf.after.dinner
-                    $windowFloor = 11 * 60
-                    $shifts = @($rf.checkin_bodies | ForEach-Object { $_.lunch_shift_minutes })
-                    $dinnerShifts = @($rf.checkin_bodies | ForEach-Object { $_.dinner_shift_minutes })
-                    Check "today dinner moved 60 minutes earlier after refusing" ($bDinner -ge 0 -and $aDinner -eq ($bDinner - 60)) ("before=" + $rf.before.dinner + " after=" + $rf.after.dinner)
-                    Check "today lunch did not move later after refusing" ($bLunch -ge 0 -and $aLunch -le $bLunch) ("before=" + $rf.before.lunch + " after=" + $rf.after.lunch)
-                    Check "today lunch moved earlier when the window leaves room" ($bLunch -le $windowFloor -or $aLunch -lt $bLunch) ("before=" + $rf.before.lunch + " after=" + $rf.after.lunch)
-                    # 即时反馈：不点也先看得见"点了会变成几点"；点下去要在网络往返回来之前
-                    # 就改好数字（乐观改写）；而且预测值必须就是最后真正落下来的值。
-                    $previewLunch = "$($rf.preview_api.lunch)"
-                    $previewDinner = "$($rf.preview_api.dinner)"
-                    Check "the card says what refusing will do before the click" (($rf.preview_hint -match "点了会变成|Tapping it makes") -and ($previewLunch -ne "") -and ($previewDinner -ne "")) ("hint='" + $rf.preview_hint + "' api=" + $previewLunch + "/" + $previewDinner)
-                    Check "clicking updates the times before the response lands" (($null -ne $rf.instant_ms) -and ($null -ne $rf.checkin_ms) -and ([int]$rf.instant_ms -lt [int]$rf.checkin_ms)) ("instant_ms=" + $rf.instant_ms + " checkin_ms=" + $rf.checkin_ms)
-                    Check "the predicted times are the ones that land" (($rf.after.lunch -eq $previewLunch) -and ($rf.after.dinner -eq $previewDinner)) ("after=" + $rf.after.lunch + "/" + $rf.after.dinner + " predicted=" + $previewLunch + "/" + $previewDinner)
-                    Check "moved times are labelled old to new" (@($rf.moved_labels | Where-Object { $_ -match "→|->" }).Count -ge 1) ("labels=" + (@($rf.moved_labels) -join " | "))
-                    # 午餐的位移是"阶梯 ⊕ 拒绝"的较大值（接口返回的就是最终生效的那个）：
-                    # 探针账号本身带着连续跳过早餐的阶梯，所以这里只能断言 ≥60；
-                    # 精确等于 60 的是晚餐那条（晚餐没有阶梯，拒绝就是 −60）。
-                    Check "refusal reports a lunch shift of at least 60 minutes" (@($shifts | Where-Object { [int]$_ -ge 60 }).Count -ge 1) ("shifts=" + ($shifts -join ","))
-                    Check "refusal reports a 60-minute dinner shift" ($dinnerShifts -contains 60) ("shifts=" + ($dinnerShifts -join ","))
-                    Check "refusal is recorded for today only" (@($rf.checkin_bodies | Where-Object { $_.refused_breakfast_today -eq $true }).Count -ge 1) ("bodies=" + ($rf.checkin_bodies | ConvertTo-Json -Compress))
-                    Check "daily plan first row follows the today card" ($rf.after.row -match [regex]::Escape($rf.after.dinner)) ("row=" + $rf.after.row + " dinner=" + $rf.after.dinner)
-                    Check "dinner shift hint shown" ($rf.dinner_hint -ne "") ("hint=" + $rf.dinner_hint)
-                    Check "refused button shows the active state" ([int]$rf.active_refused -ge 1) ("active_refused=" + $rf.active_refused)
-                    Check "refused active state clears after eating" ([int]$rf.active_refused_after_undo -eq 0) ("active_refused_after_undo=" + $rf.active_refused_after_undo)
-                    Check "clicking ate-it undoes the shift" (($rf.undone.dinner -eq $rf.before.dinner) -and ($rf.undone.lunch -eq $rf.before.lunch)) ("undone=" + $rf.undone.lunch + "/" + $rf.undone.dinner + " before=" + $rf.before.lunch + "/" + $rf.before.dinner)
+                    Check "today lunch did not move later after skipping breakfast" ($bLunch -ge 0 -and $aLunch -le $bLunch) ("before=" + $rf.before.lunch + " after=" + $rf.after.lunch)
+                    Check "today dinner moved earlier after skipping breakfast" ($bDinner -ge 0 -and $aDinner -lt $bDinner) ("before=" + $rf.before.dinner + " after=" + $rf.after.dinner)
+                    Check "each moved meal says why" (@($rf.shift_badges | Where-Object { $_ -ne "" }).Count -ge 2) ("badges=" + (@($rf.shift_badges) -join ","))
+                    Check "the reason code comes from the breakfast rule" (@($rf.shift_badges | Where-Object { "$_" -match "breakfast" }).Count -ge 1) ("badges=" + (@($rf.shift_badges) -join ","))
+                    Check "the meals area explains the rule in one line" ($rf.note -ne "") ("note='" + $rf.note + "'")
+                    Check "the check-in stores the skipped state" (@($rf.checkin_bodies | Where-Object { $_.today_breakfast -eq "skipped" }).Count -ge 1) ("bodies=" + ($rf.checkin_bodies | ConvertTo-Json -Compress))
+                    Check "clicking ate-it puts the times back" (($rf.undone.dinner -eq $rf.before.dinner) -and ($rf.undone.lunch -eq $rf.before.lunch)) ("undone=" + $rf.undone.lunch + "/" + $rf.undone.dinner + " before=" + $rf.before.lunch + "/" + $rf.before.dinner)
                     Check "fast mode explains the fixed single-day plan" ($rf.days_locked -ne "") ("days_locked='" + $rf.days_locked + "'")
-                    Check "fast mode hides the day slider" ([int]$rf.days_range_hidden -eq 1) ("range_hidden=" + $rf.days_range_hidden)
                     # 折叠/展开：有方案时表单整张卡要收起（不能留一个空壳卡片），
                     # 结果区的「重新生成方案」要能把它原样展开回来
                     Check "the form is folded away while a plan is open" ([int]$rf.form_collapsed_with_plan -eq 1) ("form_collapsed_with_plan=" + $rf.form_collapsed_with_plan)

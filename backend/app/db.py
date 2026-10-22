@@ -132,6 +132,7 @@ def init_db() -> None:
     _migrate_users_advice_notice()
     _migrate_meal_checks_refused()
     _migrate_sleep_records_wake_date()
+    _migrate_sleep_records_meal_date()
     _ensure_sqlite_pragmas()
 
 
@@ -164,6 +165,36 @@ def _migrate_sleep_records_wake_date() -> None:
                 "SET wake_date = CASE WHEN " + wake_minutes + " <= " + sleep_minutes + " "
                 "THEN date(record_date, '+1 day') ELSE date(record_date) END "
                 "WHERE wake_date IS NULL OR wake_date = ''"
+            )
+        )
+
+
+def _migrate_sleep_records_meal_date() -> None:
+    """给 sleep_records 表补 meal_date 列（"三餐记录"的独立日期，create_all 不会加列）。
+
+    回填口径按确认过的默认值走：
+      * 一般情况：三餐记录的就是"进入睡眠那天"的三餐 → meal_date = record_date；
+      * 入睡与醒来同一天（跨零点入睡，wake_date = record_date）→ 那一晚属于前一天 →
+        meal_date = record_date 的前一天。
+
+    只补空值，已有值一律不动；所以重复启动是空操作，也不会覆盖用户后来改过的日期。
+    """
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(sleep_records)")).fetchall()
+        if not rows:
+            return
+        if not any(row[1] == "meal_date" for row in rows):
+            conn.execute(text("ALTER TABLE sleep_records ADD COLUMN meal_date VARCHAR(10)"))
+        # create_all() 只建缺失的表，老库已有 sleep_records，索引要自己补。
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_sleep_records_meal_date ON sleep_records (meal_date)")
+        )
+        conn.execute(
+            text(
+                "UPDATE sleep_records "
+                "SET meal_date = CASE WHEN wake_date = record_date "
+                "THEN date(record_date, '-1 day') ELSE date(record_date) END "
+                "WHERE meal_date IS NULL OR meal_date = ''"
             )
         )
 

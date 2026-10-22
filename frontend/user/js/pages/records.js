@@ -248,6 +248,17 @@ function renderMeta(root) {
 }
 
 function tick(root) {
+  if (!payload.meal_date) {
+    toastErr(t("error.invalid_date"));
+    return;
+  }
+  if (
+    payload.meal_date !== payload.record_date &&
+    payload.meal_date !== shiftIso(payload.record_date, -1)
+  ) {
+    toastErr(t("error.invalid_meal_date"));
+    return;
+  }
   if (cooldownRemaining() > 0) {
     renderMeta(root);
     setTimeout(() => tick(root), 1000);
@@ -305,6 +316,10 @@ async function openRecordForm(root, record = null) {
   // 入睡日期默认昨天（记录的大多是"昨晚这一觉"）；起床日期默认入睡日期 + 1，可改。
   const sleepDate = record?.record_date || shiftIso(maxDate, -1);
   const wakeDate = record?.wake_date || shiftIso(sleepDate, 1);
+  // 三餐记录默认跟着入睡日：入睡与起床同一天（凌晨睡的）说明那晚属于前一天
+  const mealDate =
+    record?.meal_date ||
+    (wakeDate === sleepDate ? shiftIso(sleepDate, -1) : sleepDate);
   let collector = null;
 
   const ok = await openModal({
@@ -337,13 +352,18 @@ async function openRecordForm(root, record = null) {
           </div>
         </div>
         <div class="field">
-          <label>${escapeHtml(t("records.meals"))}</label>
-          <div class="tiny muted" style="margin-bottom:6px">${escapeHtml(t("records.mealsDay"))}</div>
-          <div class="row-wrap">
+          <div class="row-wrap" style="align-items:center; gap:10px">
+            <span class="tiny muted" data-meal-date-hint>${escapeHtml(t("records.mealsDay"))}</span>
+            <label class="tiny muted">${escapeHtml(t("records.mealDate"))}</label>
+            <input class="input" type="date" id="f-meal-date" value="${escapeHtml(mealDate)}"
+                   style="max-width:150px" />
+          </div>
+          <div class="row-wrap" style="margin-top:8px">
             <label class="checkbox"><input type="checkbox" id="f-breakfast" /><span>${escapeHtml(t("records.meal.breakfast"))}</span></label>
             <label class="checkbox"><input type="checkbox" id="f-lunch" /><span>${escapeHtml(t("records.meal.lunch"))}</span></label>
             <label class="checkbox"><input type="checkbox" id="f-dinner" /><span>${escapeHtml(t("records.meal.dinner"))}</span></label>
           </div>
+          <p class="tiny muted" data-meal-late hidden></p>
         </div>
         <div class="field">
           <label>${escapeHtml(t("records.note"))}</label>
@@ -365,12 +385,30 @@ async function openRecordForm(root, record = null) {
       // 起床日期跟着入睡日期走，直到用户自己改过它（改过就尊重他填的，例如午睡）
       const sleepInput = qs("#f-date", modal);
       const wakeInput = qs("#f-wake-date", modal);
+      const mealInput = qs("#f-meal-date", modal);
+      const lateHint = qs("[data-meal-late]", modal);
       let wakeTouched = Boolean(
         record?.wake_date && record.wake_date !== shiftIso(record.record_date, 1)
       );
+      let mealTouched = Boolean(record?.meal_date);
+
+      // 入睡与起床同一天 = 凌晨睡的那一觉，默认把三餐记到前一天，并明示可以改
+      const syncMeal = () => {
+        const sameDay = wakeInput.value === sleepInput.value;
+        if (!mealTouched) mealInput.value = sameDay ? shiftIso(sleepInput.value, -1) : sleepInput.value;
+        if (lateHint) {
+          lateHint.hidden = !sameDay;
+          lateHint.textContent = sameDay ? t("records.mealDateLate") : "";
+        }
+      };
+      syncMeal();
+      mealInput.addEventListener("input", () => {
+        mealTouched = true;
+      });
       const syncWake = () => {
         wakeInput.max = shiftIso(sleepInput.value, 1);
         if (!wakeTouched) wakeInput.value = shiftIso(sleepInput.value, 1);
+        syncMeal();
       };
       sleepInput.addEventListener("change", syncWake);
       sleepInput.addEventListener("input", syncWake);
@@ -381,6 +419,7 @@ async function openRecordForm(root, record = null) {
       collector = () => ({
         record_date: sleepInput.value,
         wake_date: wakeInput.value,
+        meal_date: mealInput.value,
         sleep_time: sleepPicker.value,
         wake_time: wakePicker.value,
         meal_breakfast: breakfast.checked,

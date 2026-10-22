@@ -150,9 +150,14 @@ def checkin(
                     .where(
                         SleepRecord.user_id == user_id,
                         or_(
-                            SleepRecord.wake_date == check_date,
-                            # 老记录没有起床日：退回按入睡日配对（与 wake_day_of 的口径一致）
+                            SleepRecord.meal_date == check_date,
+                            # 老记录没有三餐日期：退回按起床日配对（与 meal_day_of 的口径一致）
                             and_(
+                                SleepRecord.meal_date.is_(None),
+                                SleepRecord.wake_date == check_date,
+                            ),
+                            and_(
+                                SleepRecord.meal_date.is_(None),
                                 SleepRecord.wake_date.is_(None),
                                 SleepRecord.record_date == check_date,
                             ),
