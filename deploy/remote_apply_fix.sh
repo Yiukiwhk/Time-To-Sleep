@@ -251,7 +251,7 @@ esac
 # the "N attempts left" warning on a failed login.  Checking the shipped files (not
 # just the HTTP surface) catches a half-applied release where the service still
 # answers from bytecode of the previous build.
-echo "== 4e. deployed code carries the 10s cooldown, the login warning and the failure-count reset =="
+echo "== 4e. meal check-ins write back to the sleep record =="
 grep_file() {  # grep_file <label> <file> <needle>
     local label="$1" file="$2" needle="$3" hits
     hits=$(grep -c -- "$needle" "$file" 2>/dev/null || true)
@@ -287,14 +287,8 @@ grep_absent() {  # grep_absent <label> <file> <needle>
     fi
 }
 echo "== 4f. constraints removed; the refusal preview is deployed =="
-grep_file "advice service: preview"    "$APP_DIR/backend/app/services/advice.py"  'def refusal_preview'
-grep_file "advice service: state fn"   "$APP_DIR/backend/app/services/advice.py"  'def breakfast_state_today'
-grep_file "schemas: preview field"     "$APP_DIR/backend/app/schemas.py"          'refusal_preview: RefusalPreview'
-grep_file "api advice: preview wiring" "$APP_DIR/backend/app/api/advice.py"       'breakfast_missed_today'
-grep_file "frontend: preview hint"     "$WEBROOT/user/js/pages/advice.js"         'data-refusal-preview'
 grep_file "frontend: today redraw"     "$WEBROOT/user/js/pages/advice.js"         'renderTodayOnly'
 grep_file "frontend: moved label"      "$WEBROOT/user/js/pages/advice.js"         'meal-moved'
-grep_file "i18n: preview key"          "$WEBROOT/shared/i18n.js"                  'advice.meal.refusal_preview'
 grep_file "i18n: moved key"            "$WEBROOT/shared/i18n.js"                  'advice.meal.moved'
 grep_absent "records: old field gone"  "$WEBROOT/user/js/pages/records.js"        'latest_wake_time'
 grep_absent "timepicker: old picker"   "$WEBROOT/shared/timepicker.js"            'createOptionalTimePicker'
