@@ -248,17 +248,6 @@ function renderMeta(root) {
 }
 
 function tick(root) {
-  if (!payload.meal_date) {
-    toastErr(t("error.invalid_date"));
-    return;
-  }
-  if (
-    payload.meal_date !== payload.record_date &&
-    payload.meal_date !== shiftIso(payload.record_date, -1)
-  ) {
-    toastErr(t("error.invalid_meal_date"));
-    return;
-  }
   if (cooldownRemaining() > 0) {
     renderMeta(root);
     setTimeout(() => tick(root), 1000);
@@ -452,6 +441,14 @@ async function openRecordForm(root, record = null) {
   }
   if (dayGap === 0 && payload.wake_time <= payload.sleep_time) {
     toastErr(t("error.invalid_time_range"));
+    return;
+  }
+  if (
+    !payload.meal_date ||
+    (payload.meal_date !== payload.record_date &&
+      payload.meal_date !== shiftIso(payload.record_date, -1))
+  ) {
+    toastErr(payload.meal_date ? t("error.invalid_meal_date") : t("error.invalid_date"));
     return;
   }
   if (cooldownRemaining() > 0) {

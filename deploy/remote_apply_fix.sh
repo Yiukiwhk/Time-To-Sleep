@@ -439,6 +439,8 @@ grep_file "advice.js: meal shift badge" "$WEBROOT/user/js/pages/advice.js" 'data
 grep_file "i18n.js: one-line rule note" "$WEBROOT/shared/i18n.js" 'advice.meal.note.dynamic'
 grep_absent "advice.js: no not-eating button" "$WEBROOT/user/js/pages/advice.js" 'data-refused'
 grep_absent "i18n.js: ladder copy gone" "$WEBROOT/shared/i18n.js" 'advice.meal.lunch_advanced'
+grep_file "records.js: meal date check lives in the submit path" "$WEBROOT/user/js/pages/records.js" '!payload.meal_date ||'
+grep_absent "records.js: tick only counts down" "$WEBROOT/user/js/pages/records.js" 'if (!payload.meal_date) {'
 
 echo "== 4s. static assets are compressed and the module graph is preloaded =="
 grep_file "index.html: modulepreload" "$WEBROOT/user/index.html" 'rel="modulepreload"'
