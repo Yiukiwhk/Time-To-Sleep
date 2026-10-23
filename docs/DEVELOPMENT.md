@@ -206,6 +206,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
     各档断言：极限线存在、标记“该有才有”、`selfcheck == ok`（JS 版公式与后端一致）、气泡开合各一次且不出容器、
     联动到第一张日卡、预览点数 == 预览天数且改回后复原。
 
+15. **「目标作息」和「调整步长」宽屏并排**：宽窗口里这两张卡上下堆叠，右半边整条都是空白（用户报的
+    “目标作息和调整步长的窗口留空太大”）。现在外面套一层 `.plan-pair`：窄屏是普通块（上下堆叠，
+    视觉与改动前一致），`≥1100px` 变成 `2fr : 1fr` 的网格；右栏变窄后数值行加 `white-space: nowrap`
+    （否则「60 分钟」会被拆成两行）。探针按 `data-plan-pair` 量两张卡的顶边与宽度，回传 `plan_pair`
+    （`viewport_w` / `same_row` / `target_w` / `steps_w` / `ratio`），各档断言：宽屏同一行且宽度比
+    接近 2 : 1，窄屏（< 1100）不在同一行。
+
 11. **页面的第一帧就是最终形态**：先按“没有方案”画展开的表单、等数据回来再折叠，用户会看到明显一闪
     （用户报过；也不要拿骨架/“加载中”卡去遮，那只是把闪动换成灰块）。所以建议页是**等待式**加载：
     `renderAdvicePage()` 先 `await Promise.all([options, plan])`，再在同一轮任务里

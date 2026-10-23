@@ -459,6 +459,15 @@ else
     printf '  FAIL %-30s no content-encoding: gzip\n' "advice.js answers gzip"; fail=$((fail + 1))
 fi
 
+echo "== 4v. the goal and steps cards sit side by side, and the basis is weighted =="
+grep_file "advice.js: plan pair wrapper" "$WEBROOT/user/js/pages/advice.js" 'data-plan-pair'
+grep_file "app.css: plan pair grid" "$WEBROOT/user/css/app.css" 'grid-template-columns: minmax(0, 2fr)'
+grep_file "app.css: wide pair starts at 1100px" "$WEBROOT/user/css/app.css" 'min-width: 1100px'
+grep_file "i18n.js: weighted hint" "$WEBROOT/shared/i18n.js" 'advice.basis.weighted'
+grep_file "advice.py: weight decay constant" "$APP_DIR/backend/app/services/advice.py" 'WEIGHT_DECAY = 0.8'
+grep_file "advice.py: weights by calendar distance" "$APP_DIR/backend/app/services/advice.py" 'def _basis_weights'
+grep_absent "advice.py: old flat weights gone" "$APP_DIR/backend/app/services/advice.py" '1.0 + index * 0.1'
+
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"
 else

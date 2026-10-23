@@ -312,13 +312,16 @@
 - `days`：1–30；省略则按需推算。三个 `meal_*` 省略时沿用用户设置。
 - `use_target`：`true` 时优先使用自定义目标作息，否则用系统推荐目标（响应 `source` 会说明用了哪个）。
 - `save`：默认 `true`，把这次结果落库为“当前计划”快照，保证跨设备看到同一份计划。
+- `basis`：基准作息。`sample_size` 是参与统计的记录条数；`sleep_time` / `wake_time` 是**加权环形
+  均值**——权重按“离今天几天”指数衰减（`WEIGHT_DECAY = 0.8`，每早一天 ×0.8，今天为 1，最多取
+  最近 14 天），缺记录的那天不占权，剩余权重归一化后求均值。
 
 ```json
 {
   "mode": "fast",
   "days": 7,
   "source": "custom_target",
-  "basis": {"sample_days": 14, "avg_sleep_time": "00:20", "avg_wake_time": "08:10"},
+  "basis": {"sample_size": 14, "sleep_time": "00:20", "wake_time": "08:10", "duration_minutes": 470},
   "target": {"sleep_time": "23:00", "wake_time": "07:00"},
   "steps": {"cap_minutes": 60, "hard_cap_minutes": 120, "shape": {"alpha": 0.6, "power": 1.0},
             "first_step_minutes": 53, "max_step_minutes": 53, "last_step_minutes": 33,

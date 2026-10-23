@@ -882,6 +882,7 @@ function renderPlanView(root) {
     ${deviationLineHtml(data)}
     ${todayCardHtml(data)}
 
+    <div class="plan-pair" data-plan-pair>
     <section class="card stack" style="gap:14px">
       <div class="row-wrap">
         <h2 style="margin:0">${escapeHtml(t("advice.target"))}</h2>
@@ -910,9 +911,12 @@ function renderPlanView(root) {
             <div class="summary-line"><span>${escapeHtml(t("advice.basis.avgWake"))}</span>
               <strong class="mono">${escapeHtml(plan.basis?.wake_time || "--:--")}</strong></div>
             <div class="summary-line"><span>${escapeHtml(
-              t("advice.basis.samples", { n: plan.basis?.samples ?? 0 })
+              t("advice.basis.samples", { n: plan.basis?.sample_size ?? plan.basis?.samples ?? 0 })
             )}</span>
-              <strong class="mono">${escapeHtml(String(plan.basis?.samples ?? 0))}</strong></div>
+              <strong class="mono">${escapeHtml(
+                String(plan.basis?.sample_size ?? plan.basis?.samples ?? 0)
+              )}</strong></div>
+            <p class="tiny muted" data-basis-weight>${escapeHtml(t("advice.basis.weighted"))}</p>
           </div>
         </div>
         <div class="summary-cell">
@@ -931,6 +935,7 @@ function renderPlanView(root) {
     </section>
 
     ${stepsCardHtml(data)}
+    </div>
 
     ${curveCardHtml(data)}
 

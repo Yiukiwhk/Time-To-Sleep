@@ -222,6 +222,20 @@ if (-not $SkipBrowser) {
                     Check "[$mode] layout probe returned geometry" $false "advice_layout missing from the render summary"
                 }
             }
+            # 「目标作息」与「调整步长」：≥1100px 并排（2 : 1），窄屏仍上下堆叠。
+            $pp = $json.plan_pair
+            if ($adviceModes -contains $mode) {
+                if ($pp) {
+                    if ([int]$pp.viewport_w -ge 1100) {
+                        Check "[$mode] goal and steps share one row on a wide screen" ([int]$pp.same_row -eq 1) ("viewport=" + $pp.viewport_w + " target_w=" + $pp.target_w + " steps_w=" + $pp.steps_w)
+                        Check "[$mode] the pair splits roughly two to one" ([double]$pp.ratio -ge 1.7 -and [double]$pp.ratio -le 2.3) ("ratio=" + $pp.ratio)
+                    } else {
+                        Check "[$mode] goal and steps stack on a narrow screen" ([int]$pp.same_row -eq 0) ("viewport=" + $pp.viewport_w)
+                    }
+                } else {
+                    Check "[$mode] plan pair probe returned geometry" $false "plan_pair missing from the render summary"
+                }
+            }
             # 日卡里的建议默认折成一行（用户报的「空间利用率太低」）：默认不占位、
             # 点开就地展开并换成「收起建议」、再点回到折叠，展开时那张卡确实变高。
             $bc = $json.boot_cache

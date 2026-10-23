@@ -842,3 +842,36 @@ def test_meal_date_defaults_from_the_wake_date(client: TestClient) -> None:
     )
     assert bad.status_code == 400
     assert "invalid_meal_date" in str(bad.json())
+
+def test_basis_weights_decay_by_calendar_distance():
+    """权重只看日历距离：每早一天 ×0.8；缺记录的那天不占权。"""
+    today = date(2026, 10, 20)
+    records = [
+        _fake("2026-10-13", "23:00", "07:00"),   # 7 天前
+        _fake("2026-10-18", "23:00", "07:00"),   # 2 天前（10-19 那天缺）
+        _fake("2026-10-20", "23:00", "07:00"),   # 今天
+    ]
+    weights = advice_service._basis_weights(records, today=today)
+    assert weights[0] == pytest.approx(0.8 ** 7)
+    assert weights[1] == pytest.approx(0.8 ** 2)
+    assert weights[2] == pytest.approx(1.0)
+
+
+def test_basis_leans_on_the_recent_nights():
+    """同一条「熬夜」记录，放在最近的夜晚比放在最早那天更能拉动均值。"""
+    today = date(2026, 10, 20)
+
+    def mean_with(spike_on_oldest: bool) -> int:
+        records = []
+        for offset in range(0, 7):
+            spike = (offset == 6) if spike_on_oldest else (offset == 0)
+            sleep = "03:00" if spike else "23:00"
+            records.append(_fake((today - timedelta(days=offset)).isoformat(), sleep, "07:00"))
+        return advice_service._basis(records, today=today)["sleep_minutes"]
+
+    recent_spike = mean_with(spike_on_oldest=False)
+    oldest_spike = mean_with(spike_on_oldest=True)
+    # 环形距离（跨零点）才算得对：03:00 与 23:00 隔着午夜。
+    assert abs(advice_service.circular_diff_minutes(recent_spike, 3 * 60)) < abs(
+        advice_service.circular_diff_minutes(oldest_spike, 3 * 60)
+    )
