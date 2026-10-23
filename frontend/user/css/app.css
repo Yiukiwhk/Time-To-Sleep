@@ -278,7 +278,8 @@
    只在外层加 grid，两张卡内部布局不变，窄屏视觉与改动前一致。 */
 .plan-pair { display: grid; gap: 12px; }
 @media (min-width: 1100px) {
-  .plan-pair { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
+  /* 两卡等高：grid 项默认 stretch，右栏卡片会被拉到与左栏一样高（用户要求上下高度对齐）。 */
+  .plan-pair { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: stretch; }
 }
 
 /* 并排后右栏变窄：数值不折行（否则「60 分钟」会被拆成两行），标签允许换行。 */

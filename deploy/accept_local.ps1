@@ -229,6 +229,7 @@ if (-not $SkipBrowser) {
                     if ([int]$pp.viewport_w -ge 1100) {
                         Check "[$mode] goal and steps share one row on a wide screen" ([int]$pp.same_row -eq 1) ("viewport=" + $pp.viewport_w + " target_w=" + $pp.target_w + " steps_w=" + $pp.steps_w)
                         Check "[$mode] the pair splits roughly two to one" ([double]$pp.ratio -ge 1.7 -and [double]$pp.ratio -le 2.3) ("ratio=" + $pp.ratio)
+  Check "[$mode] both cards end at the same height" ([int]$pp.heights_equal -eq 1) ("target_h=" + $pp.target_h + " steps_h=" + $pp.steps_h)
                     } else {
                         Check "[$mode] goal and steps stack on a narrow screen" ([int]$pp.same_row -eq 0) ("viewport=" + $pp.viewport_w)
                     }
