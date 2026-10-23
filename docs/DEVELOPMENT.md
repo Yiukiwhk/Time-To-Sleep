@@ -308,6 +308,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
   偏离弹窗就是这么坏的：点「重新计算每日步长」毫无反应，弹窗还再也不会出现。
   另外底部主按钮可以传 `okText: null` 来隐藏——两个都写「关闭」会渲染出一模一样的两个按钮。
 
+- **新增一个页面区块，就给它一条断言**：记录页的「记录概览」是纯前端算的（不新增接口），
+  验收靠探针回传的 `records_overview`（`present`/`tiles`/`rows`/`bands`/`bars`/`ref`/`pace_line`/
+  `ticks`/`labels_ok`/`linked`）加两条 `Check`（概览存在、横轴刻度是钟点）。只画不量的 UI 会在
+  重构里悄悄消失。
+- **表单默认值只用内存里已有的数据，开弹窗别发请求**：三餐默认值是从列表里那条记录的
+  `meal_*` 推的（`findMealRow()`，同一天有多条取 `updated_at` 最新的），因为
+  `recordApi` 里根本没有 `mealState` 方法——上一轮只加了后端 `GET /api/records/meal-state`，
+  客户端方法没加，结果每次打开弹窗都抛 `TypeError`，被 async 函数的 try/catch 之外变成
+  unhandled rejection，验收探针因此卡死在那儿、永远不回报。教训是：**新增客户端调用时先确认
+  方法真的存在**（`grep` 一下 `api.js`），否则它只会在某个异步分支里静默地炸。
+
 ## 提交信息与分支风格
 
 - 分支：`main` 保持可发布；功能用 `feat/<简短主题>`，修复用 `fix/<简短主题>`，文档用 `docs/<主题>`。

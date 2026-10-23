@@ -1091,3 +1091,44 @@
     font-size: 11.5px;
 }
 .day-card.is-linked { box-shadow: 0 0 0 2px var(--accent); }
+
+/* --- 睡眠记录页：概览区（KPI + 夜间时间带 + 推移折线 + 时长柱） --- */
+.records-overview { gap: 12px; }
+.records-overview.is-empty .ov-stats,
+.records-overview.is-empty .ov-split { display: none; }
+.ov-stats { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 900px) { .ov-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.ov-tile { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 10px; background: var(--bg-raised); border: 1px solid var(--border); }
+.ov-tile .label { font-size: 12px; color: var(--text-soft); }
+.ov-tile strong { font-size: 20px; }
+.ov-tile strong.is-fast { color: var(--warn); }
+.ov-split { display: grid; gap: 12px; }
+@media (min-width: 1100px) { .ov-split { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; } }
+.ov-panel { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--bg-raised); border: 1px solid var(--border); }
+.ov-title { font-size: 13px; font-weight: 600; }
+.ov-lane { display: flex; flex-direction: column; gap: 4px; }
+.ov-axis { position: relative; height: 16px; margin-left: 52px; }
+.ov-tick { position: absolute; top: 0; transform: translateX(-50%); font-size: 10.5px; color: var(--text-soft); white-space: nowrap; }
+.ov-row { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 6px; align-items: center; }
+.ov-day { font-size: 11px; color: var(--text-soft); }
+.ov-track { position: relative; height: 16px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); }
+.ov-band { position: absolute; top: 0; bottom: 0; border-radius: 6px; background: linear-gradient(90deg, rgba(79, 140, 255, 0.85), rgba(79, 140, 255, 0.45)); cursor: pointer; }
+.ov-row:hover .ov-band { filter: brightness(1.15); }
+.ov-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-soft); }
+.ov-key { display: inline-flex; align-items: center; gap: 6px; }
+.ov-swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.ov-swatch.is-band { background: rgba(79, 140, 255, 0.7); }
+.ov-swatch.is-fast { background: var(--warn); }
+.ov-pace { width: 100%; height: 96px; }
+.ov-pace .ov-zero { stroke: currentColor; opacity: 0.25; stroke-width: 0.5; stroke-dasharray: 2 2; }
+.ov-pace .ov-line { fill: none; stroke: var(--accent); stroke-width: 1.2; stroke-linejoin: round; stroke-linecap: round; }
+.ov-pace .ov-dot { fill: var(--accent); }
+.ov-pace .ov-dot.is-fast { fill: var(--warn); }
+.ov-bars { position: relative; display: flex; align-items: flex-end; gap: 6px; height: 120px; padding: 0 2px; }
+.ov-ref { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--warn); opacity: 0.6; }
+.ov-bar-wrap { position: relative; flex: 1 1 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; cursor: pointer; }
+.ov-bar { width: 100%; max-width: 28px; border-radius: 5px 5px 0 0; background: rgba(79, 140, 255, 0.75); }
+.ov-bar.is-short { background: rgba(240, 177, 55, 0.8); }
+.ov-bar-day { margin-top: 4px; font-size: 10px; color: var(--text-soft); }
+.ov-empty { margin: 0; font-size: 13px; color: var(--text-soft); }
+#records-body tr.is-hot td { background: rgba(79, 140, 255, 0.14); }

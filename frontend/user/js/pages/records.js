@@ -4,6 +4,9 @@
 
 import { recordApi, ApiError } from "/shared/api.js";
 import { t } from "/shared/i18n.js";
+
+/** 带参数的词条（i18n 只导出 t，建议页也是这么包一层的） */
+const tp = (key, params) => t(key, params || {});
 import { createTimePicker } from "/shared/timepicker.js";
 import {
   confirmDialog,
@@ -28,6 +31,7 @@ const view = {
   selected: new Set(),
   meta: null,
   cooldownUntil: 0,
+  overview: [],
 };
 
 /* ------------------------------ 渲染辅助 ------------------------------ */
@@ -92,6 +96,326 @@ function startCooldown() {
   if (seconds > 0) view.cooldownUntil = Date.now() + seconds * 1000;
 }
 
+
+/* ------------------------------ 记录概览（可视化） ------------------------------ */
+
+/** 概览最多读多少条：够画一整屏，又不至于拖慢页面 */
+const OVERVIEW_LIMIT = 60;
+/** 时长柱上的参考线（小时） */
+const OVERVIEW_REF_HOURS = 8;
+
+/** "HH:MM" → 当天分钟数 */
+function minutesOf(value) {
+  const [hour, minute] = String(value || "0:0").split(":").map(Number);
+  return (Number(hour) || 0) * 60 + (Number(minute) || 0);
+}
+
+/** 日期（YYYY-MM-DD）→ 本地当天 00:00 的毫秒数 */
+function dayStartMs(iso) {
+  const [year, month, day] = String(iso || "").split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day).getTime();
+}
+
+/** 一条记录的真实起止时刻：wake_date 优先，缺失时按"起床不晚于入睡即次日"兜底 */
+function spanOf(record) {
+  const sleepDayMs = dayStartMs(record.record_date);
+  if (sleepDayMs === null) return null;
+  const sleepTs = sleepDayMs + minutesOf(record.sleep_time) * 60000;
+  const wakeDayMs = dayStartMs(record.wake_date || record.record_date) ?? sleepDayMs;
+  let wakeTs = wakeDayMs + minutesOf(record.wake_time) * 60000;
+  if (wakeTs < sleepTs) wakeTs += 86400000;
+  return { sleepTs, wakeTs, minutes: Math.round((wakeTs - sleepTs) / 60000) };
+}
+
+/** 时刻落在"18:00 起的夜晚"里的第几个小时（0..24） */
+function nightHourOf(ts) {
+  const date = new Date(ts);
+  const hours = date.getHours() + date.getMinutes() / 60;
+  return (hours - 18 + 24) % 24;
+}
+
+/** 环形均值（分钟）：睡眠时刻会跨午夜，直接平均会算错 */
+function circularMeanMinutes(values) {
+  if (!values.length) return null;
+  let x = 0;
+  let y = 0;
+  values.forEach((value) => {
+    const angle = (value / 1440) * Math.PI * 2;
+    x += Math.cos(angle);
+    y += Math.sin(angle);
+  });
+  if (!x && !y) return null;
+  const angle = Math.atan2(y, x);
+  return Math.round(((angle / (Math.PI * 2)) * 1440 + 1440) % 1440);
+}
+
+function hhmmOf(minutes) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const value = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  return `${pad(Math.floor(value / 60))}:${pad(value % 60)}`;
+}
+
+/** 按入睡日升序，并附上算好的起止时刻 */
+function seriesOf(records) {
+  return [...records]
+    .map((record) => ({ record, span: spanOf(record) }))
+    .filter((item) => item.span)
+    .sort((a, b) => String(a.record.record_date).localeCompare(String(b.record.record_date)));
+}
+
+/** 每晚相对前一晚的推移（小时，正数=越来越晚）；中间缺记录时按天摊平 */
+/** 钟点差（分钟，取最短方向）：+60 表示比上一晚晚睡/晚起一小时 */
+function clockDelta(prevMinutes, currMinutes) {
+  let delta = currMinutes - prevMinutes;
+  if (delta > 720) delta -= 1440;
+  if (delta < -720) delta += 1440;
+  return delta;
+}
+
+function paceSeries(series) {
+  const out = [];
+  for (let index = 1; index < series.length; index += 1) {
+    const prev = series[index - 1];
+    const curr = series[index];
+    const dayGap = Math.max(
+      1,
+      Math.round((dayStartMs(curr.record.record_date) - dayStartMs(prev.record.record_date)) / 86400000) || 1
+    );
+    const minutes = clockDelta(minutesOf(prev.record.wake_time), minutesOf(curr.record.wake_time));
+    out.push({ date: curr.record.record_date, hours: minutes / 60 / dayGap });
+  }
+  return out;
+}
+
+function overviewStats(series) {
+  if (!series.length) return null;
+  const sleeps = series.map((item) => minutesOf(item.record.sleep_time));
+  const wakes = series.map((item) => minutesOf(item.record.wake_time));
+  const durations = series.map((item) => item.span.minutes);
+  const paces = paceSeries(series);
+  return {
+    count: series.length,
+    avgSleep: circularMeanMinutes(sleeps),
+    avgWake: circularMeanMinutes(wakes),
+    avgDuration: Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length),
+    avgPace: paces.length ? paces.reduce((sum, item) => sum + item.hours, 0) / paces.length : null,
+    paces,
+  };
+}
+
+/** 一条睡眠落在 18:00→次日 18:00 窗口里的位置；被窗口切开时返回两段 */
+function nightSegments(span) {
+  const start = nightHourOf(span.sleepTs);
+  const hours = span.minutes / 60;
+  const end = start + hours;
+  if (end <= 24) return [{ left: start, width: hours }];
+  return [
+    { left: start, width: 24 - start },
+    { left: 0, width: end - 24 },
+  ];
+}
+
+function nightLaneHtml(series) {
+  const ticks = [];
+  for (let hour = 0; hour <= 24; hour += 3) {
+    const label = hhmmOf(((((18 + hour) % 24) + 24) % 24) * 60);
+    ticks.push(`<span class="ov-tick" style="left:${(hour / 24) * 100}%">${escapeHtml(label)}</span>`);
+  }
+  const rows = series
+    .map((item) => {
+      const { record, span } = item;
+      const bands = nightSegments(span)
+        .map(
+          (segment) =>
+            `<span class="ov-band" data-ov-item="${record.id}" style="left:${(segment.left / 24) * 100}%;width:${(segment.width / 24) * 100}%"></span>`
+        )
+        .join("");
+      const title = `${record.record_date} ${record.sleep_time} → ${record.wake_time}`;
+      return `<div class="ov-row" data-ov-row="${record.id}" title="${escapeHtml(title)}">
+          <span class="ov-day mono">${escapeHtml(String(record.record_date).slice(5))}</span>
+          <span class="ov-track">${bands}</span>
+        </div>`;
+    })
+    .join("");
+  return `<div class="ov-lane">
+      <div class="ov-axis">${ticks.join("")}</div>
+      ${rows}
+    </div>`;
+}
+
+function paceLineHtml(paces) {
+  if (paces.length < 2) {
+    return `<p class="ov-empty">${escapeHtml(t("records.overview.fewer"))}</p>`;
+  }
+  const width = 100;
+  const height = 40;
+  const values = paces.map((item) => item.hours);
+  const top = Math.max(...values, 1.5, 0) + 0.25;
+  const bottom = Math.min(...values, -1.5, 0) - 0.25;
+  const span = top - bottom || 1;
+  const xOf = (index) => (index / (paces.length - 1)) * width;
+  const yOf = (value) => height - ((value - bottom) / span) * height;
+  const path = paces
+    .map((item, index) => `${index ? "L" : "M"}${xOf(index).toFixed(2)},${yOf(item.hours).toFixed(2)}`)
+    .join(" ");
+  const dots = paces
+    .map((item, index) => {
+      const fast = Math.abs(item.hours) > 1.5;
+      const x = xOf(index).toFixed(2);
+      const y = yOf(item.hours).toFixed(2);
+      return `<line x1="${x}" y1="${y}" x2="${x}" y2="${(Number(y) - 3).toFixed(2)}" class="ov-dot${fast ? " is-fast" : ""}"></line>`;
+    })
+    .join("");
+  return `<svg class="ov-pace" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img"
+      aria-label="${escapeHtml(t("records.overview.pace"))}">
+      <line x1="0" y1="${yOf(0).toFixed(2)}" x2="${width}" y2="${yOf(0).toFixed(2)}" class="ov-zero"></line>
+      <path d="${path}" class="ov-line" vector-effect="non-scaling-stroke"></path>
+      ${dots}
+    </svg>`;
+}
+
+function durationBarsHtml(series) {
+  const maxHours = Math.max(OVERVIEW_REF_HOURS, ...series.map((item) => item.span.minutes / 60), 10);
+  const refTop = 100 - (OVERVIEW_REF_HOURS / maxHours) * 100;
+  const bars = series
+    .map((item) => {
+      const hours = item.span.minutes / 60;
+      const height = Math.max(2, (hours / maxHours) * 100);
+      const label = String(item.record.record_date).slice(5);
+      return `<span class="ov-bar-wrap" data-ov-item="${item.record.id}" title="${escapeHtml(
+        `${label} ${item.record.sleep_time} → ${item.record.wake_time}`
+      )}">
+          <span class="ov-bar${hours < OVERVIEW_REF_HOURS ? " is-short" : ""}" style="height:${height}%"></span>
+          <span class="ov-bar-day mono">${label}</span>
+        </span>`;
+    })
+    .join("");
+  return `<div class="ov-bars">
+      <span class="ov-ref" style="top:${refTop}%"></span>
+      ${bars}
+    </div>`;
+}
+
+function overviewHtml(series) {
+  const stats = overviewStats(series);
+  if (!stats) {
+    return `<div class="row-wrap"><h2 style="margin:0">${escapeHtml(t("records.overview.title"))}</h2></div>
+      <p class="ov-empty">${escapeHtml(t("records.overview.empty"))}</p>`;
+  }
+  const paceValue = stats.avgPace === null ? "—" : `${stats.avgPace >= 0 ? "+" : ""}${stats.avgPace.toFixed(1)}`;
+  const fast = stats.avgPace !== null && Math.abs(stats.avgPace) > 1.5;
+  return `<div class="row-wrap">
+      <h2 style="margin:0">${escapeHtml(t("records.overview.title"))}</h2>
+      <span class="badge">${escapeHtml(tp("records.overview.window", { days: stats.count }))}</span>
+      <span class="grow"></span>
+      <span class="tiny muted">${escapeHtml(t("records.overview.hint"))}</span>
+    </div>
+    <div class="ov-stats">
+      <div class="ov-tile"><span class="label">${escapeHtml(t("records.overview.avgSleep"))}</span>
+        <strong class="mono">${escapeHtml(hhmmOf(stats.avgSleep ?? 0))}</strong></div>
+      <div class="ov-tile"><span class="label">${escapeHtml(t("records.overview.avgWake"))}</span>
+        <strong class="mono">${escapeHtml(hhmmOf(stats.avgWake ?? 0))}</strong></div>
+      <div class="ov-tile"><span class="label">${escapeHtml(t("records.overview.avgDuration"))}</span>
+        <strong class="mono">${escapeHtml(fmtDuration(stats.avgDuration))}</strong></div>
+      <div class="ov-tile"><span class="label">${escapeHtml(t("records.overview.avgPace"))}</span>
+        <strong class="mono${fast ? " is-fast" : ""}">${escapeHtml(
+          tp("records.overview.paceValue", { hours: paceValue })
+        )}</strong></div>
+    </div>
+    <div class="ov-split">
+      <div class="ov-panel">
+        <div class="row-wrap">
+          <span class="ov-title">${escapeHtml(t("records.overview.night"))}</span>
+          <span class="grow"></span>
+          <span class="tiny muted">${escapeHtml(t("records.overview.nightHint"))}</span>
+        </div>
+        ${nightLaneHtml(series.slice(-21))}
+        <div class="ov-legend">
+          <span class="ov-key"><i class="ov-swatch is-band"></i>${escapeHtml(t("records.overview.legendSleep"))}</span>
+          <span class="ov-key"><i class="ov-swatch is-fast"></i>${escapeHtml(t("records.overview.legendFast"))}</span>
+        </div>
+      </div>
+      <div class="ov-panel">
+        <div class="row-wrap">
+          <span class="ov-title">${escapeHtml(t("records.overview.pace"))}</span>
+          <span class="grow"></span>
+          <span class="tiny muted">${escapeHtml(t("records.overview.paceHint"))}</span>
+        </div>
+        ${paceLineHtml(stats.paces)}
+      </div>
+    </div>
+    <div class="ov-panel">
+      <div class="row-wrap">
+        <span class="ov-title">${escapeHtml(t("records.overview.duration"))}</span>
+        <span class="grow"></span>
+        <span class="tiny muted">${escapeHtml(tp("records.overview.durationHint", { hours: OVERVIEW_REF_HOURS }))}</span>
+      </div>
+      ${durationBarsHtml(series)}
+    </div>`;
+}
+
+/** 概览 ↔ 表格联动：点一条，对应的表格行高亮并滚到视野中间 */
+function focusOverviewItem(root, id) {
+  const row = qs(`#records-body [data-row="${id}"]`, root);
+  if (!row) return;
+  row.classList.add("is-hot");
+  row.scrollIntoView({ block: "center", behavior: "smooth" });
+  window.setTimeout(() => row.classList.remove("is-hot"), 1800);
+}
+
+function bindOverview(root) {
+  const box = qs("#records-overview", root);
+  if (!box) return;
+  box.addEventListener("click", (event) => {
+    const hit = event.target.closest("[data-ov-item], [data-ov-row]");
+    if (!hit) return;
+    const id = hit.getAttribute("data-ov-item") || hit.getAttribute("data-ov-row");
+    if (id) focusOverviewItem(root, id);
+  });
+}
+
+/** 找「三餐日期」那天已经记过的三餐（列表里最新的一条）。只看内存，不发请求。 */
+function findMealRow(day) {
+  const rows = [...(view.overview || []), ...(view.items || [])].filter(
+    (row) => (row.meal_date || row.record_date) === day
+  );
+  if (!rows.length) return null;
+  return rows.reduce((best, row) => (Number(row.id) > Number(best.id) ? row : best), rows[0]);
+}
+
+function renderOverview(root) {
+  const box = qs("#records-overview", root);
+  if (!box) return;
+  const series = seriesOf(view.overview.length ? view.overview : view.items);
+  box.classList.toggle("is-empty", series.length === 0);
+  box.innerHTML = overviewHtml(series);
+  bindOverview(root);
+}
+
+/** 概览要看整段区间：当前页的数据不够覆盖区间时，单独拉一次（最多 OVERVIEW_LIMIT 条） */
+async function loadOverview(root) {
+  const start = view.startDate || defaultRange().start;
+  const end = view.endDate || todayIso();
+  const inRange = view.items.filter(
+    (row) => String(row.record_date) >= start && String(row.record_date) <= end
+  );
+  const coversRange = view.total <= view.pageSize || inRange.length >= view.total;
+  if (coversRange) {
+    view.overview = inRange;
+    renderOverview(root);
+    return;
+  }
+  try {
+    const data = await recordApi.list({ page: 1, page_size: OVERVIEW_LIMIT, start_date: start, end_date: end });
+    view.overview = data.items || [];
+  } catch (err) {
+    view.overview = inRange;
+    if (err instanceof ApiError && err.status === 401) throw err;
+  }
+  renderOverview(root);
+}
+
 /* ------------------------------ 渲染 ------------------------------ */
 
 function renderShell(root) {
@@ -105,6 +429,8 @@ function renderShell(root) {
         <button class="btn btn-primary" id="add-record">＋ ${escapeHtml(t("records.add"))}</button>
       </div>
     </div>
+
+    <section class="card stack records-overview" id="records-overview"></section>
 
     <div class="card stack" style="gap:12px">
       <div class="toolbar">
@@ -165,7 +491,7 @@ function renderRows(root) {
   body.innerHTML = view.items
     .map(
       (record) => `
-      <tr>
+      <tr data-row="${record.id}">
         <td><input type="checkbox" data-pick="${record.id}" ${view.selected.has(record.id) ? "checked" : ""} /></td>
         <td class="mono">${escapeHtml(record.record_date)}</td>
         <td class="mono">${escapeHtml(record.wake_date || "—")}</td>
@@ -277,6 +603,7 @@ async function load(root, { silent = false } = {}) {
     renderRows(root);
     renderPagination(root);
     renderMeta(root);
+    await loadOverview(root);
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) throw err;
     toastErr(err instanceof Error ? err.message : t("error.server"));
@@ -352,6 +679,7 @@ async function openRecordForm(root, record = null) {
             <label class="checkbox"><input type="checkbox" id="f-lunch" /><span>${escapeHtml(t("records.meal.lunch"))}</span></label>
             <label class="checkbox"><input type="checkbox" id="f-dinner" /><span>${escapeHtml(t("records.meal.dinner"))}</span></label>
           </div>
+          <p class="tiny muted" data-meals-from hidden></p>
           <p class="tiny muted" data-meal-late hidden></p>
         </div>
         <div class="field">
@@ -370,6 +698,45 @@ async function openRecordForm(root, record = null) {
       breakfast.checked = record ? Boolean(record.meal_breakfast) : true;
       lunch.checked = record ? Boolean(record.meal_lunch) : true;
       dinner.checked = record ? Boolean(record.meal_dinner) : true;
+
+      // 新建记录时，三餐默认跟随「三餐日期」那天已有的记录（建议页今天卡片勾过、
+      // 或者更早填过一条记录）；用户只要自己动过勾选，就不再覆盖他。
+      const mealsHint = qs("[data-meals-from]", modal);
+      const mealBoxes = { breakfast, lunch, dinner };
+      let mealsTouched = false;
+      const applyMeals = (meals) => {
+        Object.keys(mealBoxes).forEach((key) => {
+          const state = meals?.[key]?.state;
+          if (state === "eaten") mealBoxes[key].checked = true;
+          else if (state === "skipped") mealBoxes[key].checked = false;
+        });
+      };
+      // 新建记录时，三餐默认沿用「三餐日期」那天已经记过的三餐（列表里已有的记录）。
+      // 只读内存里的列表数据，不发请求：弹窗打开是纯同步的，表单能立刻出现。
+      const loadMeals = () => {
+        if (record || mealsTouched) return;
+        const day = qs("#f-meal-date", modal).value;
+        if (!day) return;
+        const row = findMealRow(day);
+        if (!row) {
+          if (mealsHint) mealsHint.hidden = true;
+          return;
+        }
+        applyMeals({
+          breakfast: { state: row.meal_breakfast ? "eaten" : "skipped" },
+          lunch: { state: row.meal_lunch ? "eaten" : "skipped" },
+          dinner: { state: row.meal_dinner ? "eaten" : "skipped" },
+        });
+        if (mealsHint) {
+          mealsHint.hidden = false;
+          mealsHint.textContent = tp("records.mealsFromRecord", { date: day });
+        }
+      };
+      Object.values(mealBoxes).forEach((box) => {
+        box.addEventListener("change", () => {
+          mealsTouched = true;
+        });
+      });
 
       // 起床日期跟着入睡日期走，直到用户自己改过它（改过就尊重他填的，例如午睡）
       const sleepInput = qs("#f-date", modal);
@@ -391,13 +758,16 @@ async function openRecordForm(root, record = null) {
         }
       };
       syncMeal();
+      loadMeals();
       mealInput.addEventListener("input", () => {
         mealTouched = true;
+        loadMeals();
       });
       const syncWake = () => {
         wakeInput.max = shiftIso(sleepInput.value, 1);
         if (!wakeTouched) wakeInput.value = shiftIso(sleepInput.value, 1);
         syncMeal();
+        loadMeals();
       };
       sleepInput.addEventListener("change", syncWake);
       sleepInput.addEventListener("input", syncWake);

@@ -469,6 +469,15 @@ grep_file "advice.py: weight decay constant" "$APP_DIR/backend/app/services/advi
 grep_file "advice.py: weights by calendar distance" "$APP_DIR/backend/app/services/advice.py" 'def _basis_weights'
 grep_absent "advice.py: old flat weights gone" "$APP_DIR/backend/app/services/advice.py" '1.0 + index * 0.1'
 
+echo "== 4w. the records page draws an overview, and the form pre-fills meals =="
+grep_file "records.js: overview shell" "$WEBROOT/user/js/pages/records.js" 'records-overview'
+grep_file "records.js: night bands" "$WEBROOT/user/js/pages/records.js" 'ov-band'
+grep_file "records.js: pace line" "$WEBROOT/user/js/pages/records.js" 'paceSeries'
+grep_file "records.js: meal default from the list" "$WEBROOT/user/js/pages/records.js" 'findMealRow'
+grep_file "i18n.js: overview title" "$WEBROOT/shared/i18n.js" 'records.overview.title'
+grep_file "i18n.js: prefill hint" "$WEBROOT/shared/i18n.js" 'records.mealsFromRecord'
+grep_file "app.css: overview grid" "$WEBROOT/user/css/app.css" '.records-overview { gap: 12px; }'
+
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"
 else

@@ -389,6 +389,13 @@ if (-not $SkipBrowser) {
                 Check "changing the bedtime date moves the wake date with it" (($rform.wake_after_shift -ne "") -and ($rform.wake_after_shift -ne $rform.wake_date) -and ($rform.wake_restored -eq $rform.wake_date)) ("shifted=" + $rform.wake_after_shift + " restored=" + $rform.wake_restored)
                 Check "the form posts the wake date" (@($rform.submit_calls | Where-Object { $_.body -match 'wake_date' }).Count -ge 1) ("bodies=" + (@($rform.submit_calls) | ConvertTo-Json -Compress))
                 Check "the records table shows both dates" ([int]$rform.wake_cells -ge 1) ("wake_cells=" + $rform.wake_cells)
+                $ov = $json.records_overview
+                Check "the records page opens with an overview" (([int]$ov.present -eq 1) -and ([int]$ov.tiles -eq 4)) ("present=" + $ov.present + " tiles=" + $ov.tiles)
+                Check "every night gets a band and a length bar" (([int]$ov.rows -ge 1) -and ([int]$ov.bands -ge [int]$ov.rows) -and ([int]$ov.bars -ge 1)) ("rows=" + $ov.rows + " bands=" + $ov.bands + " bars=" + $ov.bars)
+                Check "the overview axis reads as clock times" (([int]$ov.ticks -ge 5) -and ([int]$ov.labels_ok -eq 1)) ("ticks=" + $ov.ticks + " labels=" + $ov.labels)
+                Check "the length bars carry the reference line" ([int]$ov.ref -eq 1) ("ref=" + $ov.ref)
+                Check "the drift chart is drawn" ([int]$ov.pace_line -eq 1) ("pace_line=" + $ov.pace_line)
+                Check "clicking a night jumps to its row" ([int]$ov.linked -eq 1) ("linked=" + $ov.linked)
                 Check "the form says the meals belong to the wake day" ([int]$rform.meals_day_hint -eq 1) "no wake-day hint in the modal"
             }
             if ($mode -eq "plan") {
