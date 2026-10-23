@@ -186,12 +186,18 @@ export function renderTimeline(timeline, opts = {}) {
       ${bars}
     </div>`;
 
+  // 宽屏条带里不写文字（见 app.css 的 .tl-h .tl-item-label），所以图例要把
+  // 三餐的建议区间也带上：删掉条带内的文字不能等于丢信息。
   const mealLegend = ["breakfast", "lunch", "dinner"]
-    .filter((key) => items.some((item) => item.kind === "meal" && item.meal === key))
-    .map(
-      (key) =>
-        `<span class="tl-legend-item">${MEAL_ICONS[key]} ${escapeHtml(t(`records.meal.${key}`))}</span>`
-    )
+    .map((key) => ({ key, item: items.find((item) => item.kind === "meal" && item.meal === key) }))
+    .filter((entry) => entry.item)
+    .map(({ key, item }) => {
+      const span =
+        item.start_time && item.end_time
+          ? ` <span class="tl-legend-span">${escapeHtml(`${item.start_time}–${item.end_time}`)}</span>`
+          : "";
+      return `<span class="tl-legend-item">${MEAL_ICONS[key]} ${escapeHtml(t(`records.meal.${key}`))}${span}</span>`;
+    })
     .join("");
 
   // 纵向变体不需要轴上的时间刻度：轴的文字在上（第一个条之上）、在区间里、在下，

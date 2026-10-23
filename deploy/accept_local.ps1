@@ -189,11 +189,6 @@ if (-not $SkipBrowser) {
             } elseif ($adviceModes -contains $mode) {
                 Check "[$mode] today timeline probe returned geometry" $false "tl_today missing from the render summary"
             }
-            if ($json.tl_mini) {
-                Check "[$mode] mini timeline items are geometrically visible" (@($json.tl_mini.invisible)[0] -eq 0) ("variant=" + $json.tl_mini.variant + " items=" + $json.tl_mini.items + " invisible=" + $json.tl_mini.invisible)
-            } elseif ($adviceModes -contains $mode) {
-                Check "[$mode] mini timeline probe returned geometry" $false "tl_mini missing from the render summary"
-            }
             # 用户看到时间图里睡眠断成两截，以为是"睡了两觉"：两截必须各自标出来，
             # 并且轴上要说清是同一觉（跨零点、轴两端相接）。
             # 探针字段是压缩过的短名（p=part / l=label / r=range）：摘要要塞进 GET 查询串，
@@ -205,9 +200,6 @@ if (-not $SkipBrowser) {
                 Check "[$mode] the night is drawn as two labelled halves" (($halves.Count -eq 2) -and ($halves[0].p -ne $halves[1].p) -and ($halves[0].l -ne "") -and ($halves[1].l -ne "") -and ($halves[0].l -ne $halves[1].l)) ("parts=" + $halfParts + " labels=" + $halfLabels)
                 Check "[$mode] each sleep half keeps its own time range" (@($halves | Where-Object { $_.r -match '\d{2}:\d{2}.\d{2}:\d{2}' }).Count -eq 2) ("ranges=" + (($halves | ForEach-Object { $_.r }) -join " | "))
                 Check "[$mode] the axis says the two halves are one night" ([int]$json.tl_today.join_marked -eq 1) ("parts=" + $halfParts)
-                if ($json.tl_mini) {
-                    Check "[$mode] the mini axis keeps the join note" ([int]$json.tl_mini.join_marked -eq 1) ("mini=" + (@($json.tl_mini.sleep_halves | ForEach-Object { $_.l + $_.r }) -join " | "))
-                }
             }
             # 用户报的「PC 页面挤在一边 / 时间图被压缩在一排」：表单折叠后布局只剩一列时，
             # 方案区必须占满整行，右侧不能留下空白带。（表单展开时方案区是第二列，同样贴到右边缘。）
@@ -250,18 +242,19 @@ if (-not $SkipBrowser) {
       Check "[$mode] boot cache probe returned data" $false ("boot_cache=" + ($bc | ConvertTo-Json -Compress))
     }
 
-    $tf = $json.tips_fold
-            if ($adviceModes -contains $mode) {
-                if ($tf) {
-                    Check "[$mode] day tips start folded" ([int]$tf.folded_by_default -eq 1) ("present=" + $tf.present + " folded=" + $tf.folded_by_default + " label=" + $tf.label)
-                    Check "[$mode] the fold counts the tips" (("$($tf.label)" -match '\d')) ("label=" + $tf.label)
-                    Check "[$mode] tapping the fold shows the tips" (([int]$tf.expanded_after_click -eq 1) -and ([int]$tf.refolded_after_second_click -eq 1)) ("expanded=" + $tf.expanded_after_click + " refolded=" + $tf.refolded_after_second_click + " label_after=" + $tf.label_after_click)
-                    Check "[$mode] unfolding the tips costs vertical space" ([int]$tf.card_h_open -gt [int]$tf.card_h_folded) ("folded_h=" + $tf.card_h_folded + " open_h=" + $tf.card_h_open)
-                    Check "[$mode] the toggle label follows the fold" (("$($tf.label_after_click)" -ne "") -and ("$($tf.label_after_click)" -ne "$($tf.label)")) ("label=" + $tf.label + " label_after=" + $tf.label_after_click)
-                } else {
-                    Check "[$mode] tips fold probe returned geometry" $false "tips_fold missing from the render summary"
-                }
-            }
+    # 日卡不再画小时间图、也不再每张卡挂一份建议：建议合成一个折叠面板放在今日卡下面，
+    # 底部嵌一条当天的引文。面板是原生 <details>，"折叠/展开"由 open 属性决定。
+    $ap = $json.advice_panel
+    if ($adviceModes -contains $mode) {
+        if ($ap) {
+            Check "[$mode] the tips panel exists and starts folded" (([int]$ap.present -eq 1) -and ([int]$ap.closed_by_default -eq 1)) ("present=" + $ap.present + " closed=" + $ap.closed_by_default)
+            Check "[$mode] the panel counts its tips" (([int]$ap.tips -ge 1) -and ([int]$ap.summary_len -gt 0)) ("tips=" + $ap.tips + " summary_len=" + $ap.summary_len)
+            Check "[$mode] the quote sits at the bottom of the panel" (([int]$ap.quote_len -gt 10) -and ([int]$ap.quote_last -eq 1)) ("quote_len=" + $ap.quote_len + " last=" + $ap.quote_last)
+            Check "[$mode] day cards lost their mini timelines and tips" (([int]$ap.day_mini -eq 0) -and ([int]$ap.day_tips -eq 0)) ("day_mini=" + $ap.day_mini + " day_tips=" + $ap.day_tips)
+        } else {
+            Check "[$mode] tips panel probe returned geometry" $false "advice_panel missing from the render summary"
+        }
+    }
             # 步长卡（新曲线）：不再展示固定分段 60/45/30/15，改成"每日建议阈值 + 首 / 最大 / 收尾
             # 三天的实际步长"，并且那三天是递减的（先快后缓）。钩子是 data-steps-*，不看中文文案。
             $sc = $json.steps_card
@@ -400,7 +393,7 @@ if (-not $SkipBrowser) {
             }
             if ($mode -eq "plan") {
                 Check "daily plan rows rendered" ([int]$json.plan_rows -ge 2) ("rows=" + $json.plan_rows)
-                Check "mini timelines drawn (>= 3 per day)" ([int]$json.timeline_bars -ge 6) ("bars=" + $json.timeline_bars)
+                Check "daily rows rendered without a mini timeline" ([int]$json.timeline_bars -ge 4) ("bars=" + $json.timeline_bars)
             }
             if ($mode -eq "refs") {
                 Check "references modal opened" ($json.modal_open -eq 1) "no .modal-host in the frame"
@@ -464,7 +457,7 @@ if (-not $SkipBrowser) {
                 Check "narrow timeline renders one row per item" ($json.tl_today.variant -eq "v" -and [double]$json.tl_today.min_item_h -ge 14) ("variant=" + $json.tl_today.variant + " min_h=" + $json.tl_today.min_item_h)
                 Check "narrow timeline labels are readable (not clipped)" ($json.tl_today.labels_clipped -eq 0) ("clipped=" + $json.tl_today.labels_clipped)
                 Check "narrow meal bars keep a visible minimum length" ([double]$json.tl_today.min_bar_w -ge 3) ("min_bar_w=" + $json.tl_today.min_bar_w)
-                Check "narrow mini timelines readable (labels + bars)" ($json.tl_mini.variant -eq "v" -and $json.tl_mini.labels_clipped -eq 0 -and [double]$json.tl_mini.min_bar_w -ge 3) ("variant=" + $json.tl_mini.variant + " clipped=" + $json.tl_mini.labels_clipped + " min_bar_w=" + $json.tl_mini.min_bar_w)
+                Check "narrow layout has no day mini timelines" ([int]$json.advice_panel.day_mini -eq 0) ("day_mini=" + $json.advice_panel.day_mini)
                 $vw = [int]($json.viewport -split "x")[0]
                 Check "no horizontal overflow at $vw" ([int]$json.doc_w -le $vw + 2) ("doc_w=" + $json.doc_w + " offenders=" + (@($json.overflow) -join ", "))
             }

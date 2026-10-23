@@ -329,10 +329,7 @@ grep_file   "app.css: two day columns on wide screens" "$WEBROOT/user/css/app.cs
 # promised the remaining days "can wait" is gone, so check both the new pieces and
 # the absence of the old wording.
 echo "== 4j. the day tips fold away and name the last step =="
-grep_file   "advice.js: tips fold markup"  "$WEBROOT/user/js/pages/advice.js"          'tips-fold'
-grep_file   "advice.js: tips fold wiring"  "$WEBROOT/user/js/pages/advice.js"          'data-tips-toggle'
 grep_file   "app.css: folded tips style"   "$WEBROOT/user/css/app.css"                 '.tips-toggle'
-grep_file   "i18n.js: fold labels"         "$WEBROOT/shared/i18n.js"                  'advice.tipsShow'
 grep_file   "advice.py: last step minutes" "$APP_DIR/backend/app/services/advice.py"  'last_step_minutes'
 grep_absent "i18n.js: vague infeasible copy gone" "$WEBROOT/shared/i18n.js"           '剩下的再慢慢来'
 
@@ -477,6 +474,15 @@ grep_file "records.js: meal default from the list" "$WEBROOT/user/js/pages/recor
 grep_file "i18n.js: overview title" "$WEBROOT/shared/i18n.js" 'records.overview.title'
 grep_file "i18n.js: prefill hint" "$WEBROOT/shared/i18n.js" 'records.mealsFromRecord'
 grep_file "app.css: overview grid" "$WEBROOT/user/css/app.css" '.records-overview { gap: 12px; }'
+
+echo "== 4y. the tips fold into one panel, and a quote sits at its bottom =="
+grep_file "advice.js: panel hook" "$WEBROOT/user/js/pages/advice.js" 'data-tips-panel'
+grep_file "advice.js: quote picker" "$WEBROOT/user/js/pages/advice.js" 'quoteOfDay'
+grep_file "quotes.js: shipped" "$WEBROOT/shared/quotes.js" 'function quoteOfDay'
+grep_file "i18n.js: panel summary" "$WEBROOT/shared/i18n.js" 'advice.panel.summary'
+grep_file "app.css: panel style" "$WEBROOT/user/css/app.css" '.advice-panel > summary'
+grep_absent "advice.js: old per-day fold gone" "$WEBROOT/user/js/pages/advice.js" 'data-tips-toggle'
+grep_absent "advice.js: day mini timelines gone" "$WEBROOT/user/js/pages/advice.js" 'data-day-timeline'
 
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"

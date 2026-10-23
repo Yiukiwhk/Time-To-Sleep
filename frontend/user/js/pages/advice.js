@@ -3,7 +3,7 @@
    - 等待式加载：先并发拿 options + plan，数据齐了才画第一帧（避免"表单先展开再收起"的闪动）
    - 挂载时先读 GET /api/advice/plan：有快照就展示"当前计划"，没有才显示生成表单
    - 今日卡片：入睡/起床目标、当天步长、三餐最佳时间与"已吃 / 跳过"一键确认
-   - 时间图见 /shared/timeline.js：顶部大图 + 每日行小图
+   - 时间图见 /shared/timeline.js：只保留今日大图（日卡不再画小图，条带太窄）
    - 偏离三级处理：none 不提示 / auto 一行静默说明 / ask 弹窗选策略
    - 所有后端字符串都是 i18n key，统一走 t(key, params)
    ========================================================================== */
@@ -11,6 +11,7 @@
 import { adviceApi, ApiError } from "/shared/api.js";
 import { t } from "/shared/i18n.js";
 import { renderTimeline } from "/shared/timeline.js";
+import { quoteOfDay } from "/shared/quotes.js";
 import {
   escapeHtml,
   fmtDateTime,
@@ -764,23 +765,6 @@ function lastStepMinutes(payload = {}) {
   return Number(days[days.length - 1]?.step_minutes) || 0;
 }
 
-/** 日卡里的建议默认收成一行，点开就地展开；折叠状态只活在这个 DOM 节点上，重画即回到折叠 */
-function tipsHtml(tips = []) {
-  const items = tips.map((key) => `<li>${escapeHtml(t(key))}</li>`).join("");
-  if (!items) return "";
-  if (tips.length <= 2) return `<ul class="tips">${items}</ul>`;
-  const show = tp("advice.tipsShow", { n: tips.length });
-  return `<div class="tips-fold" data-tips-fold>
-    <button type="button" class="tips-toggle" data-tips-toggle aria-expanded="false">
-      <span class="tips-caret" aria-hidden="true">▸</span>
-      <span data-tips-label data-tips-show="${escapeHtml(show)}" data-tips-hide="${escapeHtml(
-        t("advice.tipsHide")
-      )}">${escapeHtml(show)}</span>
-    </button>
-    <ul class="tips hidden">${items}</ul>
-  </div>`;
-}
-
 function mealsHtml(day) {
   const keys = enabledMeals(day.meals);
   if (!keys.length) return "";
@@ -834,8 +818,6 @@ function dayRowHtml(day) {
       </div>
     </div>
     ${mealsHtml(day)}
-    <div class="timeline-slot mini" data-day-timeline></div>
-    ${tipsHtml(day.tips || [])}
   </article>`;
 }
 
@@ -881,6 +863,7 @@ function renderPlanView(root) {
     ${noticesHtml(plan)}
     ${deviationLineHtml(data)}
     ${todayCardHtml(data)}
+    ${advicePanelHtml(data)}
 
     <div class="plan-pair" data-plan-pair>
     <section class="card stack" style="gap:14px">
@@ -974,15 +957,6 @@ function mountTimelines(root, data) {
     todaySlot.innerHTML = "";
     if (node) todaySlot.appendChild(node);
   }
-  const plan = data.plan?.plan || [];
-  root.querySelectorAll("[data-day-timeline]").forEach((slot, index) => {
-    const day = plan[index];
-    if (!day) return;
-    const node = renderTimeline(day.timeline, { mini: true });
-    if (!node) return;
-    slot.innerHTML = "";
-    slot.appendChild(node);
-  });
 }
 
 /** 三餐按钮走事件委托：局部重画后重新调用一次即可，不必给每个按钮挂监听 */
@@ -995,25 +969,36 @@ function bindMealCheckin(root, scope = root) {
   });
 }
 
-/** 建议折叠：一个监听器挂在 .day-list 上，重画日卡既不会丢也不会叠加 */
-function bindTips(root) {
-  const list = qs(".day-list", root);
-  if (!list || list.dataset.tipsBound === "1") return;
-  list.dataset.tipsBound = "1";
-  list.addEventListener("click", (event) => {
-    const btn = event.target.closest("[data-tips-toggle]");
-    if (!btn || !list.contains(btn)) return;
-    const fold = btn.closest("[data-tips-fold]");
-    const body = fold ? fold.querySelector(".tips") : null;
-    if (!body) return;
-    const open = !body.classList.toggle("hidden");
-    btn.setAttribute("aria-expanded", open ? "true" : "false");
-    const label = btn.querySelector("[data-tips-label]");
-    if (label) {
-      const text = open ? label.dataset.tipsHide : label.dataset.tipsShow;
-      if (text) label.textContent = text;
-    }
+/**
+ * 建议面板：今日卡下方的一个小折叠块（浏览器原生 <details>，不需要 JS）。
+ * 日卡里原本每个都挂一份建议，七张卡就是七段同样的字，还把页面拉得很长；
+ * 现在合成一份放在这里，去重后列出，底部再嵌一条当天的名人名言。
+ */
+function advicePanelHtml(data) {
+  const plan = data.plan || {};
+  const seen = new Set();
+  const tips = [];
+  (plan.plan || []).forEach((day) => {
+    (day.tips || []).forEach((key) => {
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      tips.push(key);
+    });
   });
+  const quote = quoteOfDay(plan.generated_at || new Date().toISOString().slice(0, 10));
+  const items = tips.map((key) => `<li>${escapeHtml(t(key))}</li>`).join("");
+  const quoteBlock = quote
+    ? `<blockquote class="quote-block" data-quote>
+        <p>${escapeHtml(quote.text)}</p>
+        <cite>— ${escapeHtml(quote.by)}</cite>
+      </blockquote>`
+    : "";
+  if (!items && !quoteBlock) return "";
+  return `<details class="advice-panel" data-tips-panel>
+    <summary data-tips-summary>${escapeHtml(tp("advice.panel.summary", { n: tips.length }))}</summary>
+    ${items ? `<ul class="tips">${items}</ul>` : ""}
+    ${quoteBlock}
+  </details>`;
 }
 
 function bindPlanActions(root) {
@@ -1047,7 +1032,6 @@ function bindPlanActions(root) {
   });
 
   bindMealCheckin(root);
-  bindTips(root);
 }
 
 /* ------------------------------ 表单 ------------------------------ */
@@ -1359,7 +1343,8 @@ function renderTodayOnly(root, day) {
       const fresh = wrap.firstElementChild;
       if (fresh) {
         row.replaceWith(fresh);
-        const mini = qs("[data-day-timeline]", fresh);
+        // 日卡里已经没有小时间图了，mountTimelines 只负责今日那张。
+    const mini = null;
         if (mini && day.timeline) {
           mini.innerHTML = "";
           const node = renderTimeline(day.timeline, { mini: true });
