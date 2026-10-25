@@ -489,11 +489,20 @@ grep_file "api records: overlap guard" "$APP_DIR/backend/app/api/records.py" '_c
 grep_file "advice: naps stay out" "$APP_DIR/backend/app/services/advice.py" 'NAP_MAX_MINUTES'
 grep_file "advice_plan: naps skipped" "$APP_DIR/backend/app/services/advice_plan.py" 'is_nap(record)'
 grep_file "records.js: nights grouped" "$WEBROOT/user/js/pages/records.js" 'nightLaneHtml'
-grep_file "records.js: day chips" "$WEBROOT/user/js/pages/records.js" 'data-day-chips'
 grep_file "records.js: inline form error" "$WEBROOT/user/js/pages/records.js" 'data-form-error'
 grep_file "i18n.js: overlap copy" "$WEBROOT/shared/i18n.js" 'error.overlapping_record'
 grep_file "i18n.js: naps copy" "$WEBROOT/shared/i18n.js" 'advice.basis.naps'
 grep_absent "records.js: old series helper gone" "$WEBROOT/user/js/pages/records.js" 'seriesOf('
+
+echo "== 4aa. the date fields use the drawn calendar, and recorded days are marked =="
+grep_file "date-picker.js shipped" "$WEBROOT/user/js/date-picker.js" 'export function enhanceDateInputs'
+grep_file "date-picker.js month marks" "$WEBROOT/user/js/date-picker.js" 'is-marked'
+grep_file "date-picker.js cache reset" "$WEBROOT/user/js/date-picker.js" 'export function clearDateMarkCache'
+grep_file "records.js picker wired into the form" "$WEBROOT/user/js/pages/records.js" 'enhanceDateInputs(modal)'
+grep_file "records.js marks cleared after a write" "$WEBROOT/user/js/pages/records.js" 'clearDateMarkCache()'
+grep_file "app.css calendar panel" "$WEBROOT/user/css/app.css" '.dp-grid'
+grep_absent "records.js: old day chips gone" "$WEBROOT/user/js/pages/records.js" 'data-day-chips'
+grep_absent "i18n.js: old chip hints gone" "$WEBROOT/shared/i18n.js" 'records.dayChipsHint'
 
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"

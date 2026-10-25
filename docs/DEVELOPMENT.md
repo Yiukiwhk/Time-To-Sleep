@@ -339,3 +339,26 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 - **重叠预检两层**：后端 `_check_no_overlap()` 抛 400 `error.overlapping_record`（背靠背合法、完全重复必拒、编辑排除自己），前端提交前用本地列表再算一遍。**种测试数据时小心**：表单默认 `23:30–07:30` 与种子记录同夜就可能被判重叠，`records` 档故意把种子挪到 `20:00–22:00`。
 - **按夜晚分组**：时间带一行 = 入睡日 18:00 → 次日 18:00，同夜多条共用一行、跨 18:00 切开；漂移每夜一个点。`nightsOf()` 是唯一入口，旧的 `seriesOf()` 已删除（4z 用 `grep_absent` 守着）。
 - **短睡不算夜**：`NAP_MAX_MINUTES = 120`，`is_nap()` 为真的记录不进平均入睡/起床/时长，也不参与偏离与达标配对；概览显示「已排除 N 段小睡」。
+
+## 日期控件：自绘日历与两个查询上限
+
+- 原生 `<input type="date">` 的日历层是浏览器 chrome，颜色改不了，所以
+  `frontend/user/js/date-picker.js` 把它藏起来（`value` 仍是唯一真值，表单收集和验收探针
+  都照旧读它），旁边放一个按钮打开自绘网格。入口只有两个：`enhanceDateInputs(root)`
+  （幂等，重复渲染后重复调用即可）和 `clearDateMarkCache()`；`records.js` 在 `load()`
+  拉完列表后调后者，增删改之后绿点才会重算。
+- 绿点 = 那天有睡眠记录（按 `record_date`）：本月 `is-marked`（实心 `--ok`），相邻月
+  `is-marked-soft`（22% 透明），选中 `is-selected`（主题蓝描边），今天 `is-today`
+  （内描边），超出输入框 `min` / `max` 的 `is-disabled`。弹层挂在 `document.body`
+  （`position: fixed`、`z-index: 99999`、宽 268），点外面 / Esc / 选中一天都会关；
+  **不要加 resize 关闭**，headless 和窗口抖动会把它误关。
+- **`page_size` 上限 100**：`GET /api/records` 超过就 422 `error.invalid_input`，日历按
+  `page_size=100` 查。
+- **日期过滤最多宽限 1 天**（`MAX_FUTURE_DAYS = 1`）：拿“本月 1 号 → 本月最后一天”去查当月，
+  月底还没到时后端直接 400 `error.date_in_future`；`markedOf()` 以前把这个异常吞成空集合，
+  于是**当月一个绿点都不显示**（曾经被误判成截图时机问题）。现在 `end_date` 夹到今天，
+  整月都在未来的月份连请求都不发。
+- 自检：`.tmp/accept/zz-picker-check.html`（`?hold=1` 停在日历打开的状态，方便截图；
+  不带参数时还会点一天，验证输入框回写和起床日联动）要从 nginx docroot 打开，用探针建的
+  `shot-records` / `User@12345` 登录，结果通过 `/healthz?ui=picker:...` 回传；`4aa` 用
+  `grep_file` / `grep_absent` 守着这些约定。

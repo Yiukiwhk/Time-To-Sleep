@@ -1132,33 +1132,6 @@
 }
 .day-card.is-linked { box-shadow: 0 0 0 2px var(--accent); }
 
-/* --- 睡眠记录页：概览区（KPI + 夜间时间带 + 推移折线 + 时长柱） --- */
-/* 日期小方块：已填的天点亮（带条数），未填的是空心；点一下就选那天。 */
-.day-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.day-chip {
-  position: relative;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-soft);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.day-chip:hover { color: var(--text); border-color: var(--border-strong); }
-.day-chip.is-filled { border-color: var(--accent); color: var(--text); }
-.day-chip.is-selected { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--text); }
-.day-chip-dot {
-  margin-left: 4px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: #0b1220;
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 700;
-}
 .form-error {
   margin: 0;
   padding: 8px 10px;
@@ -1213,3 +1186,26 @@ input[type="date"] { color-scheme: dark; }
 input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.7; cursor: pointer; }
 input[type="date"]:hover::-webkit-calendar-picker-indicator,
 input[type="date"]:focus::-webkit-calendar-picker-indicator { opacity: 1; }
+
+/* 自绘日期弹层（原生 input[type=date] 的日历无法改配色，故自己画） */
+.date-native { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+.date-field { display: flex; align-items: center; }
+.date-field-btn { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.date-field-btn:hover { border-color: var(--border-strong); }
+.date-field-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dp { position: fixed; z-index: 99999; padding: 10px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--bg-raised); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45); }
+.dp-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; }
+.dp-title { font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: 0.02em; }
+.dp-nav { width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 7px; background: transparent; color: var(--text-soft); font-size: 15px; line-height: 1; cursor: pointer; }
+.dp-nav:hover { color: var(--text); border-color: var(--border-strong); }
+.dp-week, .dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.dp-week span { padding: 2px 0; text-align: center; font-size: 11px; color: var(--text-soft); }
+.dp-day { padding: 6px 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.dp-day:hover { background: rgba(127, 127, 127, 0.18); }
+.dp-day.is-outside { color: var(--text-soft); opacity: 0.55; }
+.dp-day.is-marked { background: var(--ok); color: #06130d; font-weight: 600; }
+.dp-day.is-marked:hover { filter: brightness(1.08); }
+.dp-day.is-marked-soft { background: rgba(53, 196, 141, 0.22); color: var(--ok); }
+.dp-day.is-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+.dp-day.is-today { box-shadow: inset 0 0 0 1px var(--accent); }
+.dp-day.is-disabled { color: var(--text-soft); opacity: 0.35; cursor: not-allowed; }

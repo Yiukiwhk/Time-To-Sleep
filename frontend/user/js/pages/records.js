@@ -8,6 +8,7 @@ import { t } from "/shared/i18n.js";
 /** 带参数的词条（i18n 只导出 t，建议页也是这么包一层的） */
 const tp = (key, params) => t(key, params || {});
 import { createTimePicker } from "/shared/timepicker.js";
+import { clearDateMarkCache, enhanceDateInputs } from "/user/js/date-picker.js";
 import {
   confirmDialog,
   debounce,
@@ -637,6 +638,7 @@ function renderPagination(root) {
 }
 
 function renderMeta(root) {
+  enhanceDateInputs(root);
   const totalNode = qs("#records-total", root);
   if (totalNode) totalNode.textContent = t("records.stats", { total: view.total });
   const retentionNode = qs("#retention-tip", root);
@@ -673,6 +675,8 @@ async function load(root, { silent = false } = {}) {
       start_date: view.startDate || undefined,
       end_date: view.endDate || undefined,
     });
+    // 记录有增删改，日历上的“已记录”绿点要重新算
+    clearDateMarkCache();
     view.items = data.items || [];
     view.total = data.total || 0;
     view.pages = data.pages || 1;
@@ -737,10 +741,6 @@ async function openRecordForm(root, record = null) {
             <span class="tiny muted">${escapeHtml(t("records.wakeDateHint"))}</span>
           </div>
         </div>
-        <div class="field">
-          <div class="day-chips" data-day-chips></div>
-          <p class="tiny muted" data-day-hint></p>
-        </div>
         <div class="form-row">
           <div class="field">
             <label>${escapeHtml(t("records.sleepTime"))}</label>
@@ -781,6 +781,7 @@ async function openRecordForm(root, record = null) {
         </div>
       </div>`,
     onMount: (modal, close) => {
+      enhanceDateInputs(modal);
       const sleepPicker = createTimePicker(qs("#f-sleep", modal), { value: record?.sleep_time || "23:30" });
       const wakePicker = createTimePicker(qs("#f-wake", modal), { value: record?.wake_time || "07:30" });
       const breakfast = qs("#f-breakfast", modal);
@@ -877,57 +878,6 @@ async function openRecordForm(root, record = null) {
         meal_dinner: dinner.checked,
         note: qs("#f-note", modal).value.trim() || null,
       });
-
-      // 小方块：最近 14 天里哪些天已经记过（点亮 + 条数），点一下就能选那天
-      const chipsBox = qs("[data-day-chips]", modal);
-      const dayHint = qs("[data-day-hint]", modal);
-      const countByDay = () => {
-        const counts = new Map();
-        [...(view.overview || []), ...(view.items || [])].forEach((row) => {
-          const day = String(row.record_date || "");
-          if (!day) return;
-          counts.set(day, (counts.get(day) || 0) + 1);
-        });
-        return counts;
-      };
-      const renderChips = () => {
-        const counts = countByDay();
-        if (chipsBox) {
-          const chips = [];
-          for (let back = 13; back >= 0; back -= 1) {
-            const day = shiftIso(maxDate, -back);
-            const count = counts.get(day) || 0;
-            const cls = ["day-chip"];
-            if (count) cls.push("is-filled");
-            if (day === sleepInput.value) cls.push("is-selected");
-            chips.push(
-              `<button type="button" class="${cls.join(" ")}" data-day-chip="${escapeHtml(day)}" title="${escapeHtml(
-                day
-              )}">${escapeHtml(String(day).slice(5))}${
-                count > 1 ? `<i class="day-chip-dot">${count}</i>` : ""
-              }</button>`
-            );
-          }
-          chipsBox.innerHTML = chips.join("");
-        }
-        if (dayHint) {
-          const count = counts.get(sleepInput.value) || 0;
-          dayHint.textContent = count
-            ? tp("records.dayCountHint", { n: count })
-            : t("records.dayChipsHint");
-        }
-      };
-      renderChips();
-      chipsBox?.addEventListener("click", (event) => {
-        const chip = event.target.closest("[data-day-chip]");
-        if (!chip) return;
-        sleepInput.value = chip.getAttribute("data-day-chip");
-        wakeTouched = false;
-        syncWake();
-        renderChips();
-      });
-      sleepInput.addEventListener("change", renderChips);
-      sleepInput.addEventListener("input", renderChips);
 
       // 保存：按钮进入禁用态、错误留在弹窗里，成功才 close(true) 关窗
       const errorBox = qs("[data-form-error]", modal);
