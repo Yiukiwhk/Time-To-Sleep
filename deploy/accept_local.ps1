@@ -141,6 +141,9 @@ if (-not $SkipBrowser) {
             $profile = Join-Path $accept ("edge-profile-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
             $route = if ($mode -eq "records") { "/user/%23/records" } else { "/user/%23/advice" }
             $url = "$base/zz-smoke-advice.html?to=$route&mode=$mode"
+  # records 档：把种下的记录挪到 20:00-22:00，避免与表单默认的 23:30-07:30 重叠
+  # （重叠预检会正确地拦下默认值，那是产品行为，不是被测缺陷）。
+  if ($mode -eq "records") { $url += "&sleep=20:00&wake=22:00" }
             $size = if ($mode -eq "mobile") { "390,900" } else { "1440,1240" }
             if ($mode -eq "mobile") { $url = "$url&w=390" } # headless windows have a minimum width; pin the iframe instead
             Start-Process -FilePath $edge -Wait -NoNewWindow -ArgumentList @(

@@ -900,6 +900,13 @@ function renderPlanView(root) {
                 String(plan.basis?.sample_size ?? plan.basis?.samples ?? 0)
               )}</strong></div>
             <p class="tiny muted" data-basis-weight>${escapeHtml(t("advice.basis.weighted"))}</p>
+        ${
+          Number(plan.basis?.naps) > 0
+            ? `<p class="tiny muted" data-basis-naps>${escapeHtml(
+                tp("advice.basis.naps", { n: plan.basis.naps })
+              )}</p>`
+            : ""
+        }
           </div>
         </div>
         <div class="summary-cell">

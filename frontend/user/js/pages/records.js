@@ -156,16 +156,73 @@ function hhmmOf(minutes) {
   return `${pad(Math.floor(value / 60))}:${pad(value % 60)}`;
 }
 
-/** 按入睡日升序，并附上算好的起止时刻 */
-function seriesOf(records) {
-  return [...records]
-    .map((record) => ({ record, span: spanOf(record) }))
-    .filter((item) => item.span)
-    .sort((a, b) => String(a.record.record_date).localeCompare(String(b.record.record_date)));
+/** 一条睡眠落在哪个夜晚：18:00 之前算前一晚（轴是 18:00 → 次日 18:00） */
+function nightKeyOf(ts) {
+  const d = new Date(ts);
+  if (d.getHours() < 18) d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
 }
 
-/** 每晚相对前一晚的推移（小时，正数=越来越晚）；中间缺记录时按天摊平 */
-/** 钟点差（分钟，取最短方向）：+60 表示比上一晚晚睡/晚起一小时 */
+/**
+ * 按夜晚分组：同一夜的几条记录（凌晨一觉 + 早上回笼觉）画在同一行，
+ * 跨 18:00 的按轴切开、分别落到相邻两行（与今日「一天的样子」同口径）。
+ */
+function nightsOf(records) {
+  const map = new Map();
+  [...records].forEach((record) => {
+    const span = spanOf(record);
+    if (!span) return;
+    let cursor = span.sleepTs;
+    let guard = 0;
+    while (cursor < span.wakeTs && guard < 4) {
+      guard += 1;
+      const key = nightKeyOf(cursor);
+      const windowStart = dayStartMs(key) + 18 * 3600000;
+      const windowEnd = windowStart + 86400000;
+      const segEnd = Math.min(span.wakeTs, windowEnd);
+      if (segEnd <= cursor) break;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          startNight: true,
+          segments: [],
+          records: [],
+          duration: 0,
+          sleepMinute: null,
+          wakeMinute: null,
+        });
+      }
+      const night = map.get(key);
+      if (cursor === span.sleepTs) {
+        night.startNight = true;
+      }
+      night.segments.push({
+        record,
+        left: (cursor - windowStart) / 3600000,
+        width: (segEnd - cursor) / 3600000,
+      });
+      cursor = segEnd;
+    }
+    const startKey = nightKeyOf(span.sleepTs);
+    const night = map.get(startKey);
+    if (!night) return;
+    if (!night.records.some((row) => row.id === record.id)) night.records.push(record);
+    night.duration += span.minutes;
+    const sleepMinute = minutesOf(record.sleep_time);
+    const wakeMinute = minutesOf(record.wake_time);
+    if (night.sleepMinute === null || clockDelta(sleepMinute, night.sleepMinute) > 0) {
+      night.sleepMinute = sleepMinute;
+    }
+    if (night.wakeMinute === null || clockDelta(wakeMinute, night.wakeMinute) < 0) {
+      night.wakeMinute = wakeMinute;
+    }
+  });
+  return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/** 钟点差（分钟，取最短方向）：+60 表示比上一次晚睡/晚起一小时 */
 function clockDelta(prevMinutes, currMinutes) {
   let delta = currMinutes - prevMinutes;
   if (delta > 720) delta -= 1440;
@@ -173,29 +230,32 @@ function clockDelta(prevMinutes, currMinutes) {
   return delta;
 }
 
-function paceSeries(series) {
+/** 每夜相对前一夜的推移（小时，正数=越来越晚）；中间缺记录时按天摊平 */
+function paceSeries(nights) {
   const out = [];
-  for (let index = 1; index < series.length; index += 1) {
-    const prev = series[index - 1];
-    const curr = series[index];
+  for (let index = 1; index < nights.length; index += 1) {
+    const prev = nights[index - 1];
+    const curr = nights[index];
     const dayGap = Math.max(
       1,
-      Math.round((dayStartMs(curr.record.record_date) - dayStartMs(prev.record.record_date)) / 86400000) || 1
+      Math.round((dayStartMs(curr.key) - dayStartMs(prev.key)) / 86400000) || 1
     );
-    const minutes = clockDelta(minutesOf(prev.record.wake_time), minutesOf(curr.record.wake_time));
-    out.push({ date: curr.record.record_date, hours: minutes / 60 / dayGap });
+    const minutes = clockDelta(prev.wakeMinute, curr.wakeMinute);
+    out.push({ date: curr.key, hours: minutes / 60 / dayGap });
   }
   return out;
 }
 
-function overviewStats(series) {
-  if (!series.length) return null;
-  const sleeps = series.map((item) => minutesOf(item.record.sleep_time));
-  const wakes = series.map((item) => minutesOf(item.record.wake_time));
-  const durations = series.map((item) => item.span.minutes);
-  const paces = paceSeries(series);
+function overviewStats(nights) {
+  if (!nights.length) return null;
+  const counts = nights.map((night) => night.records.length);
+  const sleeps = nights.map((night) => night.sleepMinute).filter((v) => v !== null);
+  const wakes = nights.map((night) => night.wakeMinute).filter((v) => v !== null);
+  const durations = nights.map((night) => night.duration);
+  const paces = paceSeries(nights);
   return {
-    count: series.length,
+    count: nights.length,
+    records: counts.reduce((sum, value) => sum + value, 0),
     avgSleep: circularMeanMinutes(sleeps),
     avgWake: circularMeanMinutes(wakes),
     avgDuration: Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length),
@@ -204,36 +264,25 @@ function overviewStats(series) {
   };
 }
 
-/** 一条睡眠落在 18:00→次日 18:00 窗口里的位置；被窗口切开时返回两段 */
-function nightSegments(span) {
-  const start = nightHourOf(span.sleepTs);
-  const hours = span.minutes / 60;
-  const end = start + hours;
-  if (end <= 24) return [{ left: start, width: hours }];
-  return [
-    { left: start, width: 24 - start },
-    { left: 0, width: end - 24 },
-  ];
-}
-
-function nightLaneHtml(series) {
+function nightLaneHtml(nights) {
   const ticks = [];
   for (let hour = 0; hour <= 24; hour += 3) {
     const label = hhmmOf(((((18 + hour) % 24) + 24) % 24) * 60);
     ticks.push(`<span class="ov-tick" style="left:${(hour / 24) * 100}%">${escapeHtml(label)}</span>`);
   }
-  const rows = series
-    .map((item) => {
-      const { record, span } = item;
-      const bands = nightSegments(span)
+  const rows = nights
+    .map((night) => {
+      const bands = night.segments
         .map(
           (segment) =>
-            `<span class="ov-band" data-ov-item="${record.id}" style="left:${(segment.left / 24) * 100}%;width:${(segment.width / 24) * 100}%"></span>`
+            `<span class="ov-band" data-ov-item="${segment.record.id}" style="left:${(segment.left / 24) * 100}%;width:${(segment.width / 24) * 100}%"></span>`
         )
         .join("");
-      const title = `${record.record_date} ${record.sleep_time} → ${record.wake_time}`;
-      return `<div class="ov-row" data-ov-row="${record.id}" title="${escapeHtml(title)}">
-          <span class="ov-day mono">${escapeHtml(String(record.record_date).slice(5))}</span>
+      const title = night.records
+        .map((record) => `${record.record_date} ${record.sleep_time} → ${record.wake_time}`)
+        .join(" / ");
+      return `<div class="ov-row" data-ov-row="${escapeHtml(night.key)}" title="${escapeHtml(title)}">
+          <span class="ov-day mono">${escapeHtml(String(night.key).slice(5))}</span>
           <span class="ov-track">${bands}</span>
         </div>`;
     })
@@ -275,18 +324,22 @@ function paceLineHtml(paces) {
     </svg>`;
 }
 
-function durationBarsHtml(series) {
-  const maxHours = Math.max(OVERVIEW_REF_HOURS, ...series.map((item) => item.span.minutes / 60), 10);
+function durationBarsHtml(nights) {
+  const hours = nights.map((night) => night.duration / 60);
+  const maxHours = Math.max(OVERVIEW_REF_HOURS, ...hours, 10);
   const refTop = 100 - (OVERVIEW_REF_HOURS / maxHours) * 100;
-  const bars = series
-    .map((item) => {
-      const hours = item.span.minutes / 60;
-      const height = Math.max(2, (hours / maxHours) * 100);
-      const label = String(item.record.record_date).slice(5);
-      return `<span class="ov-bar-wrap" data-ov-item="${item.record.id}" title="${escapeHtml(
-        `${label} ${item.record.sleep_time} → ${item.record.wake_time}`
+  const bars = nights
+    .map((night, index) => {
+      const value = hours[index];
+      const height = Math.max(2, (value / maxHours) * 100);
+      const label = String(night.key).slice(5);
+      const title = night.records
+        .map((record) => `${record.sleep_time} → ${record.wake_time}`)
+        .join(" / ");
+      return `<span class="ov-bar-wrap" data-ov-item="${night.records[0]?.id ?? ""}" title="${escapeHtml(
+        `${label} ${title}`
       )}">
-          <span class="ov-bar${hours < OVERVIEW_REF_HOURS ? " is-short" : ""}" style="height:${height}%"></span>
+          <span class="ov-bar${value < OVERVIEW_REF_HOURS ? " is-short" : ""}" style="height:${height}%"></span>
           <span class="ov-bar-day mono">${label}</span>
         </span>`;
     })
@@ -297,8 +350,8 @@ function durationBarsHtml(series) {
     </div>`;
 }
 
-function overviewHtml(series) {
-  const stats = overviewStats(series);
+function overviewHtml(nights) {
+  const stats = overviewStats(nights);
   if (!stats) {
     return `<div class="row-wrap"><h2 style="margin:0">${escapeHtml(t("records.overview.title"))}</h2></div>
       <p class="ov-empty">${escapeHtml(t("records.overview.empty"))}</p>`;
@@ -308,6 +361,7 @@ function overviewHtml(series) {
   return `<div class="row-wrap">
       <h2 style="margin:0">${escapeHtml(t("records.overview.title"))}</h2>
       <span class="badge">${escapeHtml(tp("records.overview.window", { days: stats.count }))}</span>
+      <span class="badge">${escapeHtml(tp("records.overview.records", { count: stats.records }))}</span>
       <span class="grow"></span>
       <span class="tiny muted">${escapeHtml(t("records.overview.hint"))}</span>
     </div>
@@ -330,7 +384,7 @@ function overviewHtml(series) {
           <span class="grow"></span>
           <span class="tiny muted">${escapeHtml(t("records.overview.nightHint"))}</span>
         </div>
-        ${nightLaneHtml(series.slice(-21))}
+        ${nightLaneHtml(nights.slice(-21))}
         <div class="ov-legend">
           <span class="ov-key"><i class="ov-swatch is-band"></i>${escapeHtml(t("records.overview.legendSleep"))}</span>
           <span class="ov-key"><i class="ov-swatch is-fast"></i>${escapeHtml(t("records.overview.legendFast"))}</span>
@@ -351,7 +405,7 @@ function overviewHtml(series) {
         <span class="grow"></span>
         <span class="tiny muted">${escapeHtml(tp("records.overview.durationHint", { hours: OVERVIEW_REF_HOURS }))}</span>
       </div>
-      ${durationBarsHtml(series)}
+      ${durationBarsHtml(nights)}
     </div>`;
 }
 
@@ -384,12 +438,38 @@ function findMealRow(day) {
   return rows.reduce((best, row) => (Number(row.id) > Number(best.id) ? row : best), rows[0]);
 }
 
+/** 把一份表单数据换算成绝对毫秒区间（跨零点也成立），用于重叠预检 */
+function intervalOf(payload) {
+  const sleepDay = dayStartMs(payload.record_date);
+  if (sleepDay === null) return null;
+  const sleepTs = sleepDay + minutesOf(payload.sleep_time) * 60000;
+  const wakeDay = dayStartMs(payload.wake_date) ?? sleepDay;
+  const wakeTs = wakeDay + minutesOf(payload.wake_time) * 60000;
+  return { sleepTs, wakeTs };
+}
+
+/** 在已加载的记录里找与新区间重叠的一条（背靠背不算重叠；后端还会再校验一次） */
+function findOverlap(mine, excludeId) {
+  if (!mine) return null;
+  const rows = [...(view.overview || []), ...(view.items || [])];
+  const seen = new Set();
+  for (const record of rows) {
+    if (!record || seen.has(record.id) || record.id === excludeId) continue;
+    seen.add(record.id);
+    const span = spanOf(record);
+    if (!span) continue;
+    if (mine.sleepTs < span.wakeTs && span.sleepTs < mine.wakeTs) return record;
+  }
+  return null;
+}
+
+
 function renderOverview(root) {
   const box = qs("#records-overview", root);
   if (!box) return;
-  const series = seriesOf(view.overview.length ? view.overview : view.items);
-  box.classList.toggle("is-empty", series.length === 0);
-  box.innerHTML = overviewHtml(series);
+  const nights = nightsOf(view.overview.length ? view.overview : view.items);
+  box.classList.toggle("is-empty", nights.length === 0);
+  box.innerHTML = overviewHtml(nights);
   bindOverview(root);
 }
 
@@ -638,10 +718,10 @@ async function openRecordForm(root, record = null) {
     (wakeDate === sleepDate ? shiftIso(sleepDate, -1) : sleepDate);
   let collector = null;
 
-  const ok = await openModal({
+  await openModal({
     title: isEdit ? t("records.editTitle") : t("records.addTitle"),
     wide: true,
-    okText: isEdit ? t("records.submitUpdate") : t("records.submitCreate"),
+    okText: null,
     bodyHtml: `
       <div class="stack" style="gap:16px">
         <div class="form-row">
@@ -656,6 +736,10 @@ async function openRecordForm(root, record = null) {
                    max="${escapeHtml(shiftIso(sleepDate, 1))}" style="max-width:190px" />
             <span class="tiny muted">${escapeHtml(t("records.wakeDateHint"))}</span>
           </div>
+        </div>
+        <div class="field">
+          <div class="day-chips" data-day-chips></div>
+          <p class="tiny muted" data-day-hint></p>
         </div>
         <div class="form-row">
           <div class="field">
@@ -688,8 +772,15 @@ async function openRecordForm(root, record = null) {
                  placeholder="${escapeHtml(t("records.notePlaceholder"))}"
                  value="${escapeHtml(record?.note || "")}" />
         </div>
+        <p class="form-error" data-form-error hidden></p>
+        <div class="row-wrap">
+          <span class="grow"></span>
+          <button type="button" class="btn btn-primary" data-save>${escapeHtml(
+            isEdit ? t("records.submitUpdate") : t("records.submitCreate")
+          )}</button>
+        </div>
       </div>`,
-    onMount: (modal) => {
+    onMount: (modal, close) => {
       const sleepPicker = createTimePicker(qs("#f-sleep", modal), { value: record?.sleep_time || "23:30" });
       const wakePicker = createTimePicker(qs("#f-wake", modal), { value: record?.wake_time || "07:30" });
       const breakfast = qs("#f-breakfast", modal);
@@ -786,63 +877,149 @@ async function openRecordForm(root, record = null) {
         meal_dinner: dinner.checked,
         note: qs("#f-note", modal).value.trim() || null,
       });
+
+      // 小方块：最近 14 天里哪些天已经记过（点亮 + 条数），点一下就能选那天
+      const chipsBox = qs("[data-day-chips]", modal);
+      const dayHint = qs("[data-day-hint]", modal);
+      const countByDay = () => {
+        const counts = new Map();
+        [...(view.overview || []), ...(view.items || [])].forEach((row) => {
+          const day = String(row.record_date || "");
+          if (!day) return;
+          counts.set(day, (counts.get(day) || 0) + 1);
+        });
+        return counts;
+      };
+      const renderChips = () => {
+        const counts = countByDay();
+        if (chipsBox) {
+          const chips = [];
+          for (let back = 13; back >= 0; back -= 1) {
+            const day = shiftIso(maxDate, -back);
+            const count = counts.get(day) || 0;
+            const cls = ["day-chip"];
+            if (count) cls.push("is-filled");
+            if (day === sleepInput.value) cls.push("is-selected");
+            chips.push(
+              `<button type="button" class="${cls.join(" ")}" data-day-chip="${escapeHtml(day)}" title="${escapeHtml(
+                day
+              )}">${escapeHtml(String(day).slice(5))}${
+                count > 1 ? `<i class="day-chip-dot">${count}</i>` : ""
+              }</button>`
+            );
+          }
+          chipsBox.innerHTML = chips.join("");
+        }
+        if (dayHint) {
+          const count = counts.get(sleepInput.value) || 0;
+          dayHint.textContent = count
+            ? tp("records.dayCountHint", { n: count })
+            : t("records.dayChipsHint");
+        }
+      };
+      renderChips();
+      chipsBox?.addEventListener("click", (event) => {
+        const chip = event.target.closest("[data-day-chip]");
+        if (!chip) return;
+        sleepInput.value = chip.getAttribute("data-day-chip");
+        wakeTouched = false;
+        syncWake();
+        renderChips();
+      });
+      sleepInput.addEventListener("change", renderChips);
+      sleepInput.addEventListener("input", renderChips);
+
+      // 保存：按钮进入禁用态、错误留在弹窗里，成功才 close(true) 关窗
+      const errorBox = qs("[data-form-error]", modal);
+      const saveBtn = qs("[data-save]", modal);
+      const showError = (message) => {
+        if (!errorBox) {
+          toastErr(message);
+          return;
+        }
+        errorBox.textContent = message;
+        errorBox.hidden = false;
+        errorBox.scrollIntoView({ block: "nearest" });
+      };
+      const clearError = () => {
+        if (!errorBox) return;
+        errorBox.hidden = true;
+        errorBox.textContent = "";
+      };
+      const busy = (on) => {
+        if (!saveBtn) return;
+        saveBtn.disabled = on;
+        saveBtn.textContent = on
+          ? t("records.saving")
+          : isEdit
+            ? t("records.submitUpdate")
+            : t("records.submitCreate");
+      };
+      const submit = async () => {
+        clearError();
+        const payload = collector();
+        if (!payload.sleep_time || !payload.wake_time) return showError(t("error.invalid_time"));
+        if (!payload.record_date || !payload.wake_date) return showError(t("error.invalid_date"));
+        const dayGap =
+          payload.wake_date === payload.record_date
+            ? 0
+            : payload.wake_date === shiftIso(payload.record_date, 1)
+              ? 1
+              : -1;
+        if (dayGap < 0) return showError(t("error.invalid_date_range"));
+        if (dayGap === 0 && payload.wake_time <= payload.sleep_time) {
+          return showError(t("error.invalid_time_range"));
+        }
+        if (
+          !payload.meal_date ||
+          (payload.meal_date !== payload.record_date &&
+            payload.meal_date !== shiftIso(payload.record_date, -1))
+        ) {
+          return showError(payload.meal_date ? t("error.invalid_meal_date") : t("error.invalid_date"));
+        }
+        if (cooldownRemaining() > 0) {
+          return showError(t("records.cooldown", { seconds: cooldownRemaining() }));
+        }
+        const other = findOverlap(intervalOf(payload), record?.id);
+        if (other) {
+          return showError(
+            tp("error.overlapping_record", {
+              date: other.record_date,
+              sleep_time: other.sleep_time,
+              wake_time: other.wake_time,
+            })
+          );
+        }
+        busy(true);
+        try {
+          if (isEdit) {
+            await recordApi.update(record.id, payload);
+            toastOk(t("records.updated"));
+          } else {
+            await recordApi.create(payload);
+            toastOk(t("records.created"));
+            view.page = 1;
+          }
+          startCooldown();
+          await load(root, { silent: true });
+          renderMeta(root);
+          tick(root);
+          close(true);
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 401) throw err;
+          showError(err instanceof Error ? err.message : t("error.server"));
+        } finally {
+          busy(false);
+        }
+      };
+      saveBtn?.addEventListener("click", (event) => {
+        event.preventDefault();
+        submit();
+      });
+      [sleepInput, wakeInput, mealInput].forEach((node) => node?.addEventListener("input", clearError));
     },
   });
 
-  if (ok !== true || !collector) return;
-  const payload = collector();
-  if (!payload.sleep_time || !payload.wake_time) {
-    toastErr(t("error.invalid_time"));
-    return;
-  }
-  if (!payload.record_date || !payload.wake_date) {
-    toastErr(t("error.invalid_date"));
-    return;
-  }
-  const dayGap =
-    payload.wake_date === payload.record_date
-      ? 0
-      : payload.wake_date === shiftIso(payload.record_date, 1)
-        ? 1
-        : -1;
-  if (dayGap < 0) {
-    toastErr(t("error.invalid_date_range"));
-    return;
-  }
-  if (dayGap === 0 && payload.wake_time <= payload.sleep_time) {
-    toastErr(t("error.invalid_time_range"));
-    return;
-  }
-  if (
-    !payload.meal_date ||
-    (payload.meal_date !== payload.record_date &&
-      payload.meal_date !== shiftIso(payload.record_date, -1))
-  ) {
-    toastErr(payload.meal_date ? t("error.invalid_meal_date") : t("error.invalid_date"));
-    return;
-  }
-  if (cooldownRemaining() > 0) {
-    toastErr(t("records.cooldown", { seconds: cooldownRemaining() }));
-    return;
-  }
-
-  try {
-    if (isEdit) {
-      await recordApi.update(record.id, payload);
-      toastOk(t("records.updated"));
-    } else {
-      await recordApi.create(payload);
-      toastOk(t("records.created"));
-      view.page = 1;
-    }
-    startCooldown();
-    await load(root, { silent: true });
-    renderMeta(root);
-    tick(root);
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 401) throw err;
-    toastErr(err instanceof Error ? err.message : t("error.server"));
-  }
 }
 
 /* ------------------------------ 事件 ------------------------------ */

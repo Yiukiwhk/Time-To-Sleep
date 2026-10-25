@@ -32,6 +32,7 @@ from ..core.timing import (
     format_hhmm,
     parse_hhmm,
     sleep_duration_minutes,
+    span_minutes,
     parse_iso_date,
 )
 from ..models import MealCheck, SleepRecord, User, utcnow
@@ -93,6 +94,9 @@ IDEAL_WAKE = 7 * 60            # 07:00
 IDEAL_DURATION = 8 * 60        # 8 小时
 DEFAULT_SLOW_DAYS = 7
 DEFAULT_HISTORY_DAYS = 14
+# 时长不足这么多分钟的记录按「小睡」处理：不进平均入睡/起床、不进平均时长，
+# 也不参与偏离与达标配对（列表和夜间时间带照常显示）。
+NAP_MAX_MINUTES = 120
 # 加权旧近：入睡/起床的均值按「离今天多远」衰减加权，每早一天乘 0.8。
 # 缺失的那天不占权（等价于给 0 权重），所以缺记录不会把均值拉向别的日子。
 WEIGHT_DECAY = 0.8
@@ -252,6 +256,23 @@ def meal_plan_snapshot(history: dict, *, today: date) -> dict:
     }
 
 
+def record_duration_minutes(record: SleepRecord) -> int:
+    """一条记录的睡眠时长（分钟）：优先用日期+时刻算，算不出来退回钟点规则。"""
+    try:
+        return span_minutes(
+            record.record_date, record.sleep_time, record.wake_date, record.wake_time
+        )
+    except (ValueError, TypeError):
+        return sleep_duration_minutes(
+            parse_hhmm(record.sleep_time), parse_hhmm(record.wake_time)
+        )
+
+
+def is_nap(record: SleepRecord) -> bool:
+    """时长不足 NAP_MAX_MINUTES 的记录算小睡。"""
+    return record_duration_minutes(record) < NAP_MAX_MINUTES
+
+
 def _basis_weights(records: list[SleepRecord], *, today: date) -> list[float]:
     """每条记录的权重：按「离今天几天」指数衰减（每早一天 × WEIGHT_DECAY）。
 
@@ -269,10 +290,14 @@ def _basis_weights(records: list[SleepRecord], *, today: date) -> list[float]:
 
 
 def _basis(records: list[SleepRecord], *, today: date | None = None) -> dict:
-    """基准作息：最近记录的加权圆环均值（越靠近今天的夜晚权重越高）。"""
+    """基准作息：最近记录的加权圆环均值（越靠近今天的夜晚权重越高）。
+
+    时长不足 NAP_MAX_MINUTES 的记录按小睡处理，不进平均（见 is_nap）。
+    """
     if not records:
         return {
             "sample_size": 0,
+            "naps": 0,
             "sleep_minutes": IDEAL_SLEEP,
             "wake_minutes": IDEAL_WAKE,
             "duration_minutes": IDEAL_DURATION,
@@ -281,6 +306,18 @@ def _basis(records: list[SleepRecord], *, today: date | None = None) -> dict:
 
     today = today or date.today()
     ordered = sorted(records, key=lambda r: r.record_date)
+    nights = [record for record in ordered if not is_nap(record)]
+    naps = len(ordered) - len(nights)
+    if not nights:
+        return {
+            "sample_size": 0,
+            "naps": naps,
+            "sleep_minutes": IDEAL_SLEEP,
+            "wake_minutes": IDEAL_WAKE,
+            "duration_minutes": IDEAL_DURATION,
+            "latest_record_date": ordered[-1].record_date,
+        }
+    ordered = nights
     weights = _basis_weights(ordered, today=today)
     sleep_values = [parse_hhmm(r.sleep_time) for r in ordered]
     wake_values = [parse_hhmm(r.wake_time) for r in ordered]
@@ -294,6 +331,7 @@ def _basis(records: list[SleepRecord], *, today: date | None = None) -> dict:
 
     return {
         "sample_size": len(ordered),
+        "naps": naps,
         "sleep_minutes": sleep_mean,
         "wake_minutes": wake_mean,
         "duration_minutes": avg_duration,
@@ -1068,6 +1106,8 @@ __all__ = [
     "meal_plan_snapshot",
     "apply_meal_overlay",
     "wake_day_of",
+    "is_nap",
+    "record_duration_minutes",
     "suggested_days",
     "step_cap",
 ]

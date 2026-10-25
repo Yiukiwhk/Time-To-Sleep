@@ -875,3 +875,32 @@ def test_basis_leans_on_the_recent_nights():
     assert abs(advice_service.circular_diff_minutes(recent_spike, 3 * 60)) < abs(
         advice_service.circular_diff_minutes(oldest_spike, 3 * 60)
     )
+
+
+def test_naps_stay_out_of_the_basis():
+    """时长不足 2 小时的记录算小睡：不进平均入睡/起床、不进平均时长。"""
+    today = date(2026, 10, 20)
+    nights = [
+        _fake(
+            (today - timedelta(days=offset)).isoformat(),
+            "23:30",
+            "07:30",
+            wake_date=(today - timedelta(days=offset - 1)).isoformat(),
+        )
+        for offset in range(5)
+    ]
+    nap = _fake((today - timedelta(days=2)).isoformat(), "14:00", "14:30")
+
+    plain = advice_service._basis(nights, today=today)
+    with_nap = advice_service._basis(nights + [nap], today=today)
+
+    assert plain["naps"] == 0
+    assert with_nap["naps"] == 1
+    assert with_nap["sample_size"] == plain["sample_size"] == 5
+    assert with_nap["sleep_minutes"] == plain["sleep_minutes"]
+    assert with_nap["wake_minutes"] == plain["wake_minutes"]
+    assert with_nap["duration_minutes"] == plain["duration_minutes"]
+
+    only_naps = advice_service._basis([nap], today=today)
+    assert only_naps["sample_size"] == 0
+    assert only_naps["naps"] == 1

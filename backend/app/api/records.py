@@ -79,6 +79,72 @@ def _touch_write(user_id: int) -> None:
     run_with_retry(_update, label="touch_write")
 
 
+def _overlap_span(
+    record_date: str, sleep_time: str, wake_date: str, wake_time: str
+) -> tuple[int, int]:
+    """把一次睡眠换算成"从某个固定日子起算的绝对分钟区间"，方便比较重叠。
+
+    只用钟点比较是不行的：22:45 睡到次日 06:45 与次日 23:30 睡到 07:30 在钟点上
+    看起来很接近，实际差了一整天。所以把日期序数乘 1440 再加钟点，得到单调递增的
+    绝对分钟数，两条记录重叠 ⇔ start < 对方 end 且 对方 start < end。
+    """
+    base = parse_iso_date(record_date).toordinal() * 1440
+    start = base + parse_hhmm(sleep_time)
+    end = parse_iso_date(wake_date).toordinal() * 1440 + parse_hhmm(wake_time)
+    return start, end
+
+
+def _check_no_overlap(
+    db: Session,
+    user_id: int,
+    record_date: str,
+    sleep_time: str,
+    wake_date: str,
+    wake_time: str,
+    *,
+    exclude_id: int | None = None,
+) -> None:
+    """拒绝与已有记录时间重叠的新记录（背靠背不算重叠）。
+
+    设计取舍：
+    - 完全重复（同起同止）一定拒绝——那几乎总是误点两下；
+    - 相邻（上一段结束 == 下一段开始）允许，午睡接晚间睡眠是正常作息；
+    - 编辑时排除自己，否则"改备注"也会和自己撞上。
+    """
+    start, end = _overlap_span(record_date, sleep_time, wake_date, wake_time)
+    earliest = (parse_iso_date(record_date) - timedelta(days=2)).isoformat()
+    rows = (
+        db.query(SleepRecord)
+        .filter(
+            SleepRecord.user_id == user_id,
+            SleepRecord.record_date >= earliest,
+            SleepRecord.record_date <= wake_date,
+        )
+        .all()
+    )
+    for other in rows:
+        if exclude_id is not None and other.id == exclude_id:
+            continue
+        other_wake_date = other.wake_date or derive_wake_date(
+            other.record_date, other.sleep_time, other.wake_time
+        )
+        try:
+            other_start, other_end = _overlap_span(
+                other.record_date, other.sleep_time, other_wake_date, other.wake_time
+            )
+        except ValueError:                                  # 历史脏数据：跳过而不是 500
+            continue
+        if start < other_end and other_start < end:
+            raise ApiError(
+                400,
+                "error.overlapping_record",
+                code="error.overlapping_record",
+                date=other.record_date,
+                sleep_time=other.sleep_time,
+                wake_time=other.wake_time,
+            )
+
+
 def _check_record_date(value: str | None) -> str:
     text = value or date.today().isoformat()
     try:
@@ -244,6 +310,9 @@ def create_my_record(
         record_date, payload.wake_date, payload.sleep_time, payload.wake_time
     )
     meal_date = _check_meal_date(record_date, wake_date, payload.meal_date)
+    _check_no_overlap(
+        db, int(user.id), record_date, payload.sleep_time, wake_date, payload.wake_time
+    )
 
     def _write() -> int:
         with write_session() as session:
@@ -328,6 +397,15 @@ def update_my_record(
         )
     if effective_meal_date != record.meal_date:
         data["meal_date"] = effective_meal_date
+    _check_no_overlap(
+        db,
+        int(user.id),
+        effective_date,
+        effective_sleep,
+        effective_wake_date,
+        effective_wake,
+        exclude_id=int(record_id),
+    )
 
     def _update() -> None:
         with write_session() as session:

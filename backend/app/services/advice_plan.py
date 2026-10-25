@@ -191,8 +191,10 @@ def deviation(payload: dict, records: list[SleepRecord], today: date) -> dict:
     """
     planned = _planned_days(payload)
     today_iso = today.isoformat()
+    # 小睡（<2 小时）不参与偏离判定：否则一条午睡就会抢走「最近一次记录」。
+    nights = [record for record in records if not advice_service.is_nap(record)]
     latest = None
-    for record in sorted(records, key=advice_service.wake_day_of, reverse=True):
+    for record in sorted(nights, key=advice_service.wake_day_of, reverse=True):
         day_of_record = advice_service.wake_day_of(record)
         if day_of_record in planned and day_of_record <= today_iso:
             latest = record
@@ -201,7 +203,7 @@ def deviation(payload: dict, records: list[SleepRecord], today: date) -> dict:
     planned_days = [day for day in (payload.get("plan") or []) if day["date"] <= today_iso]
     recorded = {
         advice_service.wake_day_of(record)
-        for record in records
+        for record in nights
         if advice_service.wake_day_of(record) in planned
         and advice_service.wake_day_of(record) <= today_iso
     }
@@ -292,7 +294,11 @@ def adherence(payload: dict, records: list[SleepRecord], today: date) -> dict:
     与 `deviation` 一样按**起床日**配对（见 advice_service.wake_day_of）。
     """
     today_iso = today.isoformat()
-    by_date = {advice_service.wake_day_of(record): record for record in records}
+    by_date = {
+        advice_service.wake_day_of(record): record
+        for record in records
+        if not advice_service.is_nap(record)
+    }
     planned = [day for day in (payload.get("plan") or []) if day["date"] <= today_iso]
 
     hit_dates: list[str] = []
