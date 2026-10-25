@@ -504,6 +504,22 @@ grep_file "app.css calendar panel" "$WEBROOT/user/css/app.css" '.dp-grid'
 grep_absent "records.js: old day chips gone" "$WEBROOT/user/js/pages/records.js" 'data-day-chips'
 grep_absent "i18n.js: old chip hints gone" "$WEBROOT/shared/i18n.js" 'records.dayChipsHint'
 
+echo "== 4ab. every icon is a drawn svg, not an emoji =="
+grep_file "icons.js shipped" "$WEBROOT/shared/icons.js" 'export function iconSvg'
+grep_file "icons.js hydrates data-icon" "$WEBROOT/shared/icons.js" 'export function hydrateIcons'
+grep_file "base.css sizes the inline svg" "$WEBROOT/shared/base.css" '.ic {'
+grep_file "user shell: brand icon" "$WEBROOT/user/index.html" 'data-icon="moon"'
+grep_file "user shell: nav icon" "$WEBROOT/user/index.html" 'data-icon="advice"'
+grep_file "user shell: hydrates on boot" "$WEBROOT/user/js/main.js" 'hydrateIcons();'
+grep_file "admin shell: brand icon" "$WEBROOT/admin/index.html" 'data-icon="shield"'
+grep_file "admin shell: hydrates on boot" "$WEBROOT/admin/js/app.js" 'hydrateIcons();'
+grep_file "admin shell: nav icons spaced" "$WEBROOT/admin/css/admin.css" '.admin-shell .nav-item {'
+grep_file "timeline: meal icons drawn" "$WEBROOT/shared/timeline.js" 'iconSvg(MEAL_ICONS[item.meal]'
+grep_file "date picker: arrows drawn" "$WEBROOT/user/js/date-picker.js" 'iconSvg("chevron-left")'
+grep_absent "user shell: emoji logo gone" "$WEBROOT/user/index.html" 'auth-logo">🌙'
+grep_absent "admin shell: emoji logo gone" "$WEBROOT/admin/index.html" 'auth-logo">🛡'
+grep_absent "user shell: emoji nav gone" "$WEBROOT/user/index.html" '📋'
+
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"
 else

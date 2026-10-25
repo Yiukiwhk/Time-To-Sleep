@@ -362,3 +362,24 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
   不带参数时还会点一天，验证输入框回写和起床日联动）要从 nginx docroot 打开，用探针建的
   `shot-records` / `User@12345` 登录，结果通过 `/healthz?ui=picker:...` 回传；`4aa` 用
   `grep_file` / `grep_absent` 守着这些约定。
+## 图标：内联 SVG 与 data-icon
+
+- 界面里的图标不再用 emoji。emoji 的颜色写死在字形里（深色主题改不动）、不同系统字形不同、
+  行高会被撑开，也没法统一线宽。现在全部集中在 `frontend/shared/icons.js`：`ICONS` 里 24 个
+  24×24 的线性路径，`iconSvg(name, size)` 输出 `<svg class="ic" … stroke="currentColor">`，
+  颜色跟随文字，所以主题切换不用改图标。
+- 两种用法：写 HTML 时留 `<span class="nav-icon" data-icon="records"></span>`（`hydrateIcons()`
+  在启动时填充，幂等，可重复调）；在 JS 模板里直接拼 `${iconSvg("moon")}`。
+  主题按钮切换用 `setIcon(el, name)`，只是换 `innerHTML`。
+- 尺寸由容器决定：`.ic` 默认 `1em`（`base.css`），导航 `.nav-icon .ic` 17px，
+  时间滚轮 `.time-spin .ic` 12px，时间带图例 `.tl-icon .ic` 12px。
+- 后台左侧导航原先没有任何样式（灰底原生按钮、图标紧贴文字），这次在 `admin.css` 里补了
+  `.admin-shell .nav` / `.nav-item` / `.nav-icon` 三组规则；后台页面不加载 `user/css/app.css`，
+  它的样式别往那边写。
+- 加图标只改 `icons.js`：在 `ICONS` 里加一条路径，然后在 HTML/模板里写 `data-icon` 或
+  `iconSvg(...)`。想先看效果就打开 `.tmp/accept/icon-sheet.html`（要放进 nginx docroot），
+  它把 24 个图标按 17px / 24px、深色 / 浅色各排一遍；`advice` 原来是罗盘，17px 下指针会糊成
+  一团，所以换成了灯泡。
+- 想确认线上真的换了：`4ab` 用 `grep_file` 守着 `icons.js` / `data-icon` / `.admin-shell .nav-item`，
+  再用 `grep_absent` 确认两个入口的 emoji logo 和旧导航 emoji 已经不在。
+

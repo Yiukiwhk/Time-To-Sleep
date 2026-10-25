@@ -4,6 +4,7 @@
 
 import { recordApi, ApiError } from "/shared/api.js";
 import { t } from "/shared/i18n.js";
+import { iconSvg } from "/shared/icons.js";
 
 /** 带参数的词条（i18n 只导出 t，建议页也是这么包一层的） */
 const tp = (key, params) => t(key, params || {});
@@ -598,9 +599,9 @@ function renderRows(root) {
           ${mealCell(record)}
         </div>
         <div class="rc-times">
-          <span>🌙 ${escapeHtml(record.sleep_time)}</span>
-          <span class="muted">→</span>
-          <span>☀️ ${escapeHtml(record.wake_time)}</span>
+          <span>${iconSvg("moon")} ${escapeHtml(record.sleep_time)}</span>
+          <span class="muted">${iconSvg("arrow-right")}</span>
+          <span>${iconSvg("sun")} ${escapeHtml(record.wake_time)}</span>
           <span class="badge">${escapeHtml(fmtDuration(record.duration_minutes))}</span>
         </div>
         <div class="rc-meta">

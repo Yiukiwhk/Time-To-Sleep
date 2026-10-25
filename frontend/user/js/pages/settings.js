@@ -5,6 +5,7 @@
 import { accountApi, ApiError, authApi, settingsApi } from "/shared/api.js";
 import { getLang, t } from "/shared/i18n.js";
 import { createTimePicker } from "/shared/timepicker.js";
+import { iconSvg } from "/shared/icons.js";
 import {
   confirmDialog,
   escapeHtml,
@@ -45,8 +46,8 @@ function renderShell(root, ctx) {
           <div class="field">
             <label>${escapeHtml(t("settings.theme"))}</label>
             <div class="segment" id="set-theme">
-              <button class="segment-btn" data-theme="dark">🌙 ${escapeHtml(t("theme.dark"))}</button>
-              <button class="segment-btn" data-theme="light">☀ ${escapeHtml(t("theme.light"))}</button>
+              <button class="segment-btn" data-theme="dark">${iconSvg("moon")} ${escapeHtml(t("theme.dark"))}</button>
+              <button class="segment-btn" data-theme="light">${iconSvg("sun")} ${escapeHtml(t("theme.light"))}</button>
             </div>
             <span class="tiny muted">${escapeHtml(t("settings.themeHint"))}</span>
           </div>

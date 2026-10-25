@@ -18,6 +18,7 @@ import {
   translateError,
 } from "/shared/i18n.js";
 import { applyTheme, escapeHtml, qs, qsa, storedTheme, toastErr, toastOk } from "/shared/ui.js";
+import { hydrateIcons, setIcon } from "/shared/icons.js";
 import { renderAdvicePage } from "./pages/advice.js";
 import { renderRecordsPage } from "./pages/records.js";
 import { renderSettingsPage } from "./pages/settings.js";
@@ -87,7 +88,7 @@ function syncLangButtons() {
 function syncThemeButtons() {
   const theme = document.documentElement.getAttribute("data-theme");
   qsa("#app-theme, #login-theme, #top-theme").forEach((btn) => {
-    if (btn) btn.textContent = theme === "light" ? "☀" : "🌙";
+    if (btn) setIcon(btn, theme === "light" ? "sun" : "moon");
   });
 }
 
@@ -308,6 +309,7 @@ async function bootstrap() {
   detectLang();
   applyTheme(storedTheme(), { persist: false });
   applyStaticText();
+  hydrateIcons();
   syncLangButtons();
   syncThemeButtons();
   bindChrome();

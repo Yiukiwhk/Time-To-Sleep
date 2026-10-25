@@ -31,7 +31,7 @@
     <!-- 登录页 -->
     <section id="view-login" class="auth-page hidden">
       <div class="auth-card">
-        <div class="auth-logo">🌙</div>
+        <div class="auth-logo" data-icon="moon"></div>
         <h1 data-i18n="login.title">登录</h1>
         <p class="auth-sub" data-i18n="login.subtitle"></p>
 
@@ -59,7 +59,7 @@
             <button type="button" data-lang="zh">中文</button>
             <button type="button" data-lang="en">English</button>
           </div>
-          <button type="button" class="icon-btn" id="login-theme" title="theme">◐</button>
+          <button type="button" class="icon-btn" id="login-theme" data-icon="moon" title="theme"></button>
         </div>
 
         <p class="auth-foot" data-i18n="login.noSelfRegister"></p>
@@ -72,7 +72,7 @@
 
       <aside id="sidebar" class="sidebar">
         <div class="brand">
-          <div class="brand-mark">🌙</div>
+          <div class="brand-mark" data-icon="moon"></div>
           <div class="brand-text">
             <strong data-i18n="app.name"></strong>
             <span data-i18n="app.tagline"></span>
@@ -81,13 +81,13 @@
 
         <nav class="nav" id="nav">
           <button class="nav-item" data-route="records">
-            <span class="nav-icon">📋</span><span data-i18n="nav.records"></span>
+            <span class="nav-icon" data-icon="records"></span><span data-i18n="nav.records"></span>
           </button>
           <button class="nav-item" data-route="advice">
-            <span class="nav-icon">🧭</span><span data-i18n="nav.advice"></span>
+            <span class="nav-icon" data-icon="advice"></span><span data-i18n="nav.advice"></span>
           </button>
           <button class="nav-item" data-route="settings">
-            <span class="nav-icon">⚙️</span><span data-i18n="nav.settings"></span>
+            <span class="nav-icon" data-icon="settings"></span><span data-i18n="nav.settings"></span>
           </button>
         </nav>
 
@@ -104,7 +104,7 @@
               <button type="button" data-lang="zh">中文</button>
               <button type="button" data-lang="en">EN</button>
             </div>
-            <button type="button" class="icon-btn" id="app-theme" title="theme">◐</button>
+            <button type="button" class="icon-btn" id="app-theme" data-icon="moon" title="theme"></button>
           </div>
           <button class="btn btn-sm btn-block" id="logout-btn" data-i18n="nav.logout"></button>
         </div>
@@ -112,9 +112,9 @@
 
       <div class="main">
         <header class="topbar">
-          <button type="button" class="icon-btn" id="menu-btn">☰</button>
+          <button type="button" class="icon-btn" id="menu-btn" data-icon="menu"></button>
           <strong data-i18n="app.name"></strong>
-          <button type="button" class="icon-btn" id="top-theme">◐</button>
+          <button type="button" class="icon-btn" id="top-theme" data-icon="moon"></button>
         </header>
         <main id="route-view" class="page"></main>
         <!-- 内容区页脚：只放参考文献入口；路由重绘不会清掉它，侧栏的 .sidebar-foot 不受影响 -->

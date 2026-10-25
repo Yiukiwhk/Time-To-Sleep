@@ -406,6 +406,17 @@ table.table td.actions { white-space: nowrap; text-align: right; }
 }
 .icon-btn:hover { background: var(--bg-hover); color: var(--text); }
 
+/* 内联 SVG 图标（frontend/shared/icons.js）：尺寸跟着字号，颜色跟着 currentColor */
+.ic {
+  width: 1em;
+  height: 1em;
+  display: inline-block;
+  vertical-align: -0.125em;
+  flex: none;
+}
+.icon-btn .ic { width: 17px; height: 17px; }
+.time-spin .ic { width: 12px; height: 12px; }
+
 .lang-switch {
   display: inline-flex;
   border: 1px solid var(--border);

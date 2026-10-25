@@ -11,6 +11,7 @@
    ========================================================================== */
 
 import { t } from "./i18n.js";
+import { iconSvg } from "./icons.js";
 
 const MINUTES_PER_STEP = 1;
 
@@ -48,17 +49,17 @@ export function createTimePicker(host, options = {}) {
   host.innerHTML = `
     <div class="time-wheel-cols">
       <div class="time-col" data-col="hour">
-        <button type="button" class="time-spin" data-role="hour-up" title="${t("time.stepHint")}">▲</button>
+        <button type="button" class="time-spin" data-role="hour-up" title="${t("time.stepHint")}">${iconSvg("caret-up")}</button>
         <div class="time-value" data-role="hour-value" tabindex="0" role="spinbutton"
              aria-label="${t("time.hour")}" aria-valuemin="0" aria-valuemax="23">--</div>
-        <button type="button" class="time-spin" data-role="hour-down" title="${t("time.stepHint")}">▼</button>
+        <button type="button" class="time-spin" data-role="hour-down" title="${t("time.stepHint")}">${iconSvg("caret-down")}</button>
       </div>
       <div class="time-sep">:</div>
       <div class="time-col" data-col="minute">
-        <button type="button" class="time-spin" data-role="minute-up" title="${t("time.stepHint")}">▲</button>
+        <button type="button" class="time-spin" data-role="minute-up" title="${t("time.stepHint")}">${iconSvg("caret-up")}</button>
         <div class="time-value" data-role="minute-value" tabindex="0" role="spinbutton"
              aria-label="${t("time.minute")}" aria-valuemin="0" aria-valuemax="59">--</div>
-        <button type="button" class="time-spin" data-role="minute-down" title="${t("time.stepHint")}">▼</button>
+        <button type="button" class="time-spin" data-role="minute-down" title="${t("time.stepHint")}">${iconSvg("caret-down")}</button>
       </div>
     </div>
     <div class="time-wheel-foot">

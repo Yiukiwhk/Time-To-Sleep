@@ -11,6 +11,7 @@
 import { adviceApi, ApiError } from "/shared/api.js";
 import { t } from "/shared/i18n.js";
 import { renderTimeline } from "/shared/timeline.js";
+import { iconSvg } from "/shared/icons.js";
 import { quoteOfDay } from "/shared/quotes.js";
 import {
   escapeHtml,
@@ -23,7 +24,7 @@ import {
 } from "/shared/ui.js";
 
 const MEALS = ["breakfast", "lunch", "dinner"];
-const MEAL_ICONS = { breakfast: "🥣", lunch: "🍱", dinner: "🍲" };
+const MEAL_ICONS = { breakfast: "meal-breakfast", lunch: "meal-lunch", dinner: "meal-dinner" };
 
 const view = {
   options: null,
@@ -65,7 +66,7 @@ function shiftText(minutes) {
 const enabledMeals = (meals) => MEALS.filter((key) => meals?.[key]?.enabled);
 
 function mealIcon(key) {
-  return MEAL_ICONS[key] || "🍽";
+  return iconSvg(MEAL_ICONS[key] || "meal");
 }
 
 const mealName = (key) => t(`records.meal.${key}`);
@@ -116,7 +117,7 @@ function noticesHtml(data = {}) {
 /** 偏离：auto 只给一行安静说明；ask 交给弹窗；none 什么都不显示 */
 function deviationLineHtml(data = {}) {
   if (data.deviation?.level !== "auto" && !data.auto_recomputed) return "";
-  return `<div class="deviation-line">🔄 ${escapeHtml(t("advice.deviation.auto"))}</div>`;
+  return `<div class="deviation-line">${iconSvg("refresh")} ${escapeHtml(t("advice.deviation.auto"))}</div>`;
 }
 
 /* ------------------------------ 今日卡片 ------------------------------ */
@@ -192,21 +193,21 @@ function todayCardHtml(data) {
 
     <div class="advice-summary">
       <div class="summary-cell">
-        <span class="label">🌙 ${escapeHtml(t("records.sleepTime"))}</span>
+        <span class="label">${iconSvg("moon")} ${escapeHtml(t("records.sleepTime"))}</span>
         <div class="summary-lines">
           <div class="summary-line"><strong class="mono">${escapeHtml(day.sleep_time)}</strong>
             <span>${escapeHtml(shiftText(day.shift_sleep_minutes))}</span></div>
         </div>
       </div>
       <div class="summary-cell">
-        <span class="label">☀️ ${escapeHtml(t("records.wakeTime"))}</span>
+        <span class="label">${iconSvg("sun")} ${escapeHtml(t("records.wakeTime"))}</span>
         <div class="summary-lines">
           <div class="summary-line"><strong class="mono">${escapeHtml(day.wake_time)}</strong>
             <span>${escapeHtml(shiftText(day.shift_wake_minutes))}</span></div>
         </div>
       </div>
       <div class="summary-cell">
-        <span class="label">⏱ ${escapeHtml(t("advice.shift"))}</span>
+        <span class="label">${iconSvg("clock")} ${escapeHtml(t("advice.shift"))}</span>
         <div class="summary-lines">
           <div class="summary-line"><strong class="mono">${escapeHtml(fmtMinutes(day.step_minutes))}</strong>
             <span>${escapeHtml(t("advice.today.step", { minutes: day.step_minutes }))}</span></div>
@@ -802,18 +803,18 @@ function dayRowHtml(day) {
     </div>
     <div class="dc-times">
       <div class="day-time">
-        <span class="label">🌙 ${escapeHtml(t("records.sleepTime"))}</span>
+        <span class="label">${iconSvg("moon")} ${escapeHtml(t("records.sleepTime"))}</span>
         <span class="value">${escapeHtml(day.sleep_time)}</span>
         <span class="tiny muted">${escapeHtml(shiftText(day.shift_sleep_minutes))}</span>
       </div>
-      <div class="day-times-arrow">→</div>
+      <div class="day-times-arrow">${iconSvg("arrow-right")}</div>
       <div class="day-time">
-        <span class="label">☀️ ${escapeHtml(t("records.wakeTime"))}</span>
+        <span class="label">${iconSvg("sun")} ${escapeHtml(t("records.wakeTime"))}</span>
         <span class="value">${escapeHtml(day.wake_time)}</span>
         <span class="tiny muted">${escapeHtml(shiftText(day.shift_wake_minutes))}</span>
       </div>
       <div class="day-time">
-        <span class="label">⏱ ${escapeHtml(t("records.duration"))}</span>
+        <span class="label">${iconSvg("clock")} ${escapeHtml(t("records.duration"))}</span>
         <span class="value">${escapeHtml(fmtDuration(day.duration_minutes))}</span>
       </div>
     </div>
@@ -847,7 +848,7 @@ function renderPlanView(root) {
 
   if (!data) {
     result.innerHTML = `<div class="card empty">
-      <div class="empty-icon">🌙</div>
+      <div class="empty-icon">${iconSvg("moon")}</div>
       <p>${escapeHtml(t("advice.noPlan"))}</p>
     </div>`;
     return;

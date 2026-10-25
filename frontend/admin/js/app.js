@@ -6,6 +6,7 @@
 import { adminApi, ApiError } from "/shared/api.js";
 import { detectLang, getLang, loadLang, setLang, t, translateError } from "/shared/i18n.js";
 import { applyTheme, escapeHtml, qs, qsa, storedTheme, toastErr, toastOk } from "/shared/ui.js";
+import { hydrateIcons, setIcon } from "/shared/icons.js";
 
 import { context } from "./state.js";
 import { renderDashboardPage } from "./pages/dashboard.js";
@@ -61,7 +62,7 @@ function syncLangButtons() {
 function syncThemeButtons() {
   const theme = document.documentElement.getAttribute("data-theme");
   qsa("#login-theme, #top-theme").forEach((btn) => {
-    if (btn) btn.textContent = theme === "light" ? "☀" : "🌙";
+    if (btn) setIcon(btn, theme === "light" ? "sun" : "moon");
   });
 }
 
@@ -327,6 +328,7 @@ async function bootstrap() {
   detectLang();
   applyTheme(storedTheme(), { persist: false });
   applyStaticText();
+  hydrateIcons();
   syncLangButtons();
   syncThemeButtons();
   bindChrome();

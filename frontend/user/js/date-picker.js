@@ -9,6 +9,7 @@
  */
 import { recordApi } from "/shared/api.js";
 import { escapeHtml, qs } from "/shared/ui.js";
+import { iconSvg } from "/shared/icons.js";
 
 const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const WD_LABEL = {
@@ -150,9 +151,9 @@ function buildPopover(field, input, { min, max }) {
 
     const labels = WD_LABEL[locale()] || WD_LABEL["zh-CN"];
     box.innerHTML = `<div class="dp-head">
-        <button type="button" class="dp-nav" data-dp-move="-1" aria-label="prev">‹</button>
+        <button type="button" class="dp-nav" data-dp-move="-1" aria-label="prev">${iconSvg("chevron-left")}</button>
         <span class="dp-title">${viewYear}.${pad(viewMonth)}</span>
-        <button type="button" class="dp-nav" data-dp-move="1" aria-label="next">›</button>
+        <button type="button" class="dp-nav" data-dp-move="1" aria-label="next">${iconSvg("chevron-right")}</button>
       </div>
       <div class="dp-week">${labels.map((text) => `<span>${escapeHtml(text)}</span>`).join("")}</div>
       <div class="dp-grid">${grid}</div>`;

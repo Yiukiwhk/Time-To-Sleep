@@ -15,8 +15,9 @@
 
 import { t } from "/shared/i18n.js";
 import { escapeHtml } from "/shared/ui.js";
+import { iconSvg } from "/shared/icons.js";
 
-const MEAL_ICONS = { breakfast: "🥣", lunch: "🍱", dinner: "🍲" };
+const MEAL_ICONS = { breakfast: "meal-breakfast", lunch: "meal-lunch", dinner: "meal-dinner" };
 const MEAL_SHORT = {
   breakfast: "advice.meal.short.breakfast",
   lunch: "advice.meal.short.lunch",
@@ -98,7 +99,7 @@ export function renderTimeline(timeline, opts = {}) {
       const start = Number(item.start) || 0;
       const end = Number(item.end) || 0;
       const kind = item.kind === "meal" ? `meal meal-${item.meal}` : `sleep sleep-${item.segment || "night"}`;
-      const icon = item.kind === "meal" ? MEAL_ICONS[item.meal] || "" : "🌙";
+      const icon = item.kind === "meal" ? iconSvg(MEAL_ICONS[item.meal] || "meal") : iconSvg("moon");
       // 小图里只给三餐写名字：睡眠条在轴上的徽标已经写了时段，
       // 而且睡眠条很窄，写名字只会被裁掉（task 里报的"文字重叠/显示 records.meal.…"就是这个）
       let name = "";
@@ -196,7 +197,7 @@ export function renderTimeline(timeline, opts = {}) {
         item.start_time && item.end_time
           ? ` <span class="tl-legend-span">${escapeHtml(`${item.start_time}–${item.end_time}`)}</span>`
           : "";
-      return `<span class="tl-legend-item">${MEAL_ICONS[key]} ${escapeHtml(t(`records.meal.${key}`))}${span}</span>`;
+      return `<span class="tl-legend-item">${iconSvg(MEAL_ICONS[key])} ${escapeHtml(t(`records.meal.${key}`))}${span}</span>`;
     })
     .join("");
 
@@ -217,7 +218,7 @@ export function renderTimeline(timeline, opts = {}) {
     ${
       mini
         ? ""
-        : `<div class="tl-legend"><span class="tl-legend-item">🌙 ${escapeHtml(
+        : `<div class="tl-legend"><span class="tl-legend-item">${iconSvg("moon")} ${escapeHtml(
             t("advice.timeline.sleep")
           )}</span>${mealLegend}</div>`
     }`;

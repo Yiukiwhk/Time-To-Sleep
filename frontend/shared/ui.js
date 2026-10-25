@@ -3,6 +3,7 @@
    ========================================================================== */
 
 import { t } from "./i18n.js";
+import { iconSvg } from "./icons.js";
 
 /* ------------------------------- 主题 ------------------------------- */
 
@@ -105,7 +106,7 @@ export function openModal(options) {
       <div class="modal" ${wide ? 'style="width:min(760px,100%)"' : ""} role="dialog" aria-modal="true">
         <div class="spread" style="margin-bottom:12px">
           <h2>${escapeHtml(title)}</h2>
-          <button class="icon-btn" data-role="close" title="${escapeHtml(t("common.close"))}">✕</button>
+          <button class="icon-btn" data-role="close" title="${escapeHtml(t("common.close"))}">${iconSvg("close")}</button>
         </div>
         <div data-role="body">${bodyHtml}</div>
         <div class="modal-foot">
