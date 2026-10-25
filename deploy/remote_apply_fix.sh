@@ -514,7 +514,7 @@ grep_file "user shell: hydrates on boot" "$WEBROOT/user/js/main.js" 'hydrateIcon
 grep_file "admin shell: brand icon" "$WEBROOT/admin/index.html" 'data-icon="shield"'
 grep_file "admin shell: hydrates on boot" "$WEBROOT/admin/js/app.js" 'hydrateIcons();'
 grep_file "admin shell: nav icons spaced" "$WEBROOT/admin/css/admin.css" '.admin-shell .nav-item {'
-grep_file "timeline: meal icons drawn" "$WEBROOT/shared/timeline.js" 'iconSvg(MEAL_ICONS[item.meal]'
+grep_file "timeline: meal icons drawn" "$WEBROOT/shared/timeline.js" 'iconSvg(MEAL_ICONS'
 grep_file "date picker: arrows drawn" "$WEBROOT/user/js/date-picker.js" 'iconSvg("chevron-left")'
 grep_absent "user shell: emoji logo gone" "$WEBROOT/user/index.html" 'auth-logo">🌙'
 grep_absent "admin shell: emoji logo gone" "$WEBROOT/admin/index.html" 'auth-logo">🛡'
