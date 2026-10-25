@@ -1,4 +1,4 @@
-# Time To Sleep · 作息安排网站
+# Sleep Schedule · 作息安排网站
 
 根据历史睡眠记录，用基于公开文献的调整算法生成未来 1–30 天的**作息调整建议**与每日三餐建议时间，
 并用一张 24 小时时间图把「今天该几点睡、几点起、几点吃饭」讲清楚。
@@ -11,7 +11,7 @@
 ![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)
 ![No Build](https://img.shields.io/badge/frontend-native%20ES%20modules-f7df1e?logo=javascript&logoColor=black)
 ![License](https://img.shields.io/badge/License-MIT-green)
-[![CI](https://github.com/Yiukiwhk/Time-To-Sleep/actions/workflows/ci.yml/badge.svg)](https://github.com/Yiukiwhk/Time-To-Sleep/actions/workflows/ci.yml)
+[![CI](https://github.com/Yiukiwhk/sleep-schedule/actions/workflows/ci.yml/badge.svg)](https://github.com/Yiukiwhk/sleep-schedule/actions/workflows/ci.yml)
 
 ## 功能特性
 
@@ -73,7 +73,7 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/Yiukiwhk/Time-To-Sleep.git && cd Time-To-Sleep
+git clone https://github.com/Yiukiwhk/sleep-schedule.git && cd sleep-schedule
 python -m venv backend/.venv                      # Windows 用 backend\.venv\Scripts\python.exe
 backend/.venv/Scripts/python.exe -m pip install -r requirements.txt
 backend/.venv/Scripts/python.exe scripts/bootstrap_deps.py   # 离线环境：免 pip 安装器
