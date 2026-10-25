@@ -484,6 +484,17 @@ grep_file "app.css: panel style" "$WEBROOT/user/css/app.css" '.advice-panel > su
 grep_absent "advice.js: old per-day fold gone" "$WEBROOT/user/js/pages/advice.js" 'data-tips-toggle'
 grep_absent "advice.js: day mini timelines gone" "$WEBROOT/user/js/pages/advice.js" 'data-day-timeline'
 
+echo "== 4z. the records page keeps the form open and groups nights =="
+grep_file "api records: overlap guard" "$APP_DIR/backend/app/api/records.py" '_check_no_overlap'
+grep_file "advice: naps stay out" "$APP_DIR/backend/app/services/advice.py" 'NAP_MAX_MINUTES'
+grep_file "advice_plan: naps skipped" "$APP_DIR/backend/app/services/advice_plan.py" 'is_nap(record)'
+grep_file "records.js: nights grouped" "$WEBROOT/user/js/pages/records.js" 'nightLaneHtml'
+grep_file "records.js: day chips" "$WEBROOT/user/js/pages/records.js" 'data-day-chips'
+grep_file "records.js: inline form error" "$WEBROOT/user/js/pages/records.js" 'data-form-error'
+grep_file "i18n.js: overlap copy" "$WEBROOT/shared/i18n.js" 'error.overlapping_record'
+grep_file "i18n.js: naps copy" "$WEBROOT/shared/i18n.js" 'advice.basis.naps'
+grep_absent "records.js: old series helper gone" "$WEBROOT/user/js/pages/records.js" 'seriesOf('
+
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"
 else

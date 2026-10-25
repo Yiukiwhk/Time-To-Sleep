@@ -332,3 +332,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 - 一次提交只做一件事；改前端/算法的那次提交请附上跑过的自检命令与结果（尤其是
   `deploy/accept_local.ps1` 的通过情况）。
 - 推送前按“测试与自检命令”一节至少跑一遍冒烟 + pytest + 静态自检。
+
+## 记录页的四条护栏（第十六条）
+
+- **保存失败不关窗**：表单提交走弹窗内的 `submit()`，成功才 `close(true)`；失败只写 `[data-form-error]`，输入一律保留。探针守的断言是「submitted + modal closed + wake date posted」三条同时成立。
+- **重叠预检两层**：后端 `_check_no_overlap()` 抛 400 `error.overlapping_record`（背靠背合法、完全重复必拒、编辑排除自己），前端提交前用本地列表再算一遍。**种测试数据时小心**：表单默认 `23:30–07:30` 与种子记录同夜就可能被判重叠，`records` 档故意把种子挪到 `20:00–22:00`。
+- **按夜晚分组**：时间带一行 = 入睡日 18:00 → 次日 18:00，同夜多条共用一行、跨 18:00 切开；漂移每夜一个点。`nightsOf()` 是唯一入口，旧的 `seriesOf()` 已删除（4z 用 `grep_absent` 守着）。
+- **短睡不算夜**：`NAP_MAX_MINUTES = 120`，`is_nap()` 为真的记录不进平均入睡/起床/时长，也不参与偏离与达标配对；概览显示「已排除 N 段小睡」。
