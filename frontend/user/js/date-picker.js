@@ -196,9 +196,16 @@ function buildPopover(field, input, { min, max }) {
 }
 
 function bindOne(input) {
+  const syncLabel = () => {
+    const field = input.closest(".date-field");
+    if (!field) return;
+    const label = field.querySelector("[data-date-label]");
+    const text = input.value || "";
+    if (label && label.textContent !== text) label.textContent = text;
+    field.dataset.value = text;
+  };
   if (input.dataset.enhanced === "1") {
-    const label = input.closest(".date-field")?.querySelector("[data-date-label]");
-    if (label && label.textContent !== input.value) label.textContent = input.value;
+    syncLabel();
     return;
   }
   input.dataset.enhanced = "1";
@@ -227,6 +234,11 @@ function bindOne(input) {
   input.insertAdjacentElement("afterend", field);
   field.appendChild(button);
   field.appendChild(input);
+
+  // 表单会替用户改日期（比如起床日期跟着入睡日期走），那时只会改 input.value，
+  // 不会走日历点击；这里盯住 input/change，保证按钮上的日期文字跟着变。
+  input.addEventListener("input", () => syncLabel());
+  input.addEventListener("change", () => syncLabel());
 }
 
 /** 给 root 里每个原生日期输入框配一个自绘弹层按钮（可重复调用）。 */

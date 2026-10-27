@@ -1295,3 +1295,19 @@ input[type="date"]:focus::-webkit-calendar-picker-indicator { opacity: 1; }
   .record-card .rc-times > span { white-space: nowrap; }
   .record-card .rc-times .badge { flex: none; white-space: nowrap; margin-left: auto; }
 }
+
+/* 程序替用户顺延了日期（起床日跟着入睡日）：按钮闪一下，提示这次变动 */
+.date-field.is-flash .date-field-btn {
+  animation: date-field-flash 0.9s ease-out;
+}
+
+@keyframes date-field-flash {
+  0% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  100% {
+    border-color: var(--border);
+    box-shadow: none;
+  }
+}

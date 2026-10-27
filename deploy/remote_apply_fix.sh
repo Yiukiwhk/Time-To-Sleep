@@ -535,6 +535,14 @@ grep_file "app.css: the 320px card rules exist" "$WEBROOT/user/css/app.css" 'max
 grep_file "records.js: save button moves into the foot" "$WEBROOT/user/js/pages/records.js" 'foot.appendChild(saveButton)'
 grep_file "records.py: overlap errors carry the date" "$APP_DIR/backend/app/api/records.py" '"sleep_time": other.sleep_time'
 
+echo "== 4ae. the wake date follows the bedtime date, and never lands on tomorrow =="
+grep_file "records.js: wake date is capped at today" "$WEBROOT/user/js/pages/records.js" 'latestWake'
+grep_file "records.js: the move is announced" "$WEBROOT/user/js/pages/records.js" 'records.wakeFollowed'
+grep_file "date-picker.js: label follows a programmatic write" "$WEBROOT/user/js/date-picker.js" 'syncLabel'
+grep_file "app.css: the moved field flashes" "$WEBROOT/user/css/app.css" '.date-field.is-flash'
+grep_file "i18n: the future-wake message exists" "$WEBROOT/shared/i18n.js" 'error.wake_date_in_future'
+grep_file "records api: wake dates are capped" "$APP_DIR/backend/app/api/records.py" 'error.wake_date_in_future'
+
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"
 else

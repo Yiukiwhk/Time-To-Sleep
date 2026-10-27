@@ -178,6 +178,11 @@ def _check_wake_date(
         gap = (parse_iso_date(text) - parse_iso_date(record_date)).days
         if gap < 0 or gap > 1:
             raise ApiError(400, "error.invalid_date_range", code="error.invalid_date_range")
+    # 起床日不允许跨到明天：推导出来的也一样（今晚 22:45 睡到明早 06:45 还没发生，不能记）
+    if parse_iso_date(text) > date.today():
+        raise ApiError(
+            400, "error.wake_date_in_future", code="error.wake_date_in_future"
+        )
     if span_minutes(record_date, sleep_time, text, wake_time) <= 0:
         raise ApiError(400, "error.invalid_time_range", code="error.invalid_time_range")
     return text

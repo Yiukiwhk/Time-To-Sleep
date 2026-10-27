@@ -444,3 +444,26 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 `ApiError.__init__(status_code, detail, *, code=None, extra=None)` 只收 `extra` 字典，
 直接把字段当关键字参数传会 `TypeError`（500）。回归测试：
 `tests/test_advice_engine.py::test_overlapping_record_returns_400_with_context`。
+
+## 起床日期：跟着入睡日期走，但最晚只能到今天
+
+记录表单里「起床日期」默认 = 入睡日期 + 1。这条默认值以前是静默写入的，日历按钮上的数字不会跟着变，
+用户以为没生效；现在分两层处理：
+
+- **看得见**：`frontend/user/js/date-picker.js` 的 `bindOne` 里 `syncLabel()` 会监听 `input`/`change`，
+  程序写 `input.value` 再派发一个冒泡的 `input` 事件，按钮文字就同步了；`records.js` 的
+  `applyWakeDate()` 还会给 `.date-field` 加 0.9s 的 `is-flash` 动画（`app.css` 末尾的
+  `@keyframes date-field-flash`），并把默认提示换成 `records.wakeFollowed`（已顺延到哪天）或
+  `records.wakeClampToday`（被压到今天）。
+- **有限制**：`latestWake(sleepIso) = min(sleepIso + 1 天, 今天)`，同时用在输入框的 `max`、
+  自动跟随的取值和提交前的校验上；用户手动改过起床日期（`wakeTouched`）就不再覆盖，只在下限
+  越界时拉回来。程序自己写值时会置 `syncingWake`，避免把"用户改过"误判成真。
+
+后端 `backend/app/api/records.py` 的 `_check_wake_date()` 在显式与推导两条路径之后统一检查
+`wake_date > date.today()`，命中回 400 `error.wake_date_in_future`。也就是说"今晚 22:45 睡到明早
+06:45"这种还没结束的一觉不能提前记，得等第二天再补录。前端与后端规则一致，历史记录如果存着明天的
+起床日，打开表单时会先夹回今天并给出说明。
+
+回归测试：`tests/test_advice_engine.py` 里的 `test_wake_date_cannot_be_tomorrow_even_if_sleeping_today`
+与 `test_derived_wake_date_cannot_be_tomorrow_either`；另外 `test_checkin_writes_back_to_the_meal_day_record`
+改成用"昨天那一夜"当被打卡的那天，因为"今天入睡、明天起床"已经不再允许。

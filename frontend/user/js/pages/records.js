@@ -716,7 +716,14 @@ async function openRecordForm(root, record = null) {
   const maxDate = view.meta?.today || todayIso();
   // 入睡日期默认昨天（记录的大多是"昨晚这一觉"）；起床日期默认入睡日期 + 1，可改。
   const sleepDate = record?.record_date || shiftIso(maxDate, -1);
-  const wakeDate = record?.wake_date || shiftIso(sleepDate, 1);
+  // 起床日期最晚到今天：哪怕入睡选的是今天，起床也不能跨到明天。
+  const latestWake = (sleepIso) => {
+    const next = shiftIso(sleepIso, 1);
+    return next < maxDate ? next : maxDate;
+  };
+  const wakeDate = record?.wake_date
+    ? (record.wake_date < maxDate ? record.wake_date : maxDate)
+    : latestWake(sleepDate);
   // 三餐记录默认跟着入睡日：入睡与起床同一天（凌晨睡的）说明那晚属于前一天
   const mealDate =
     record?.meal_date ||
@@ -738,8 +745,8 @@ async function openRecordForm(root, record = null) {
           <div class="field">
             <label>${escapeHtml(t("records.wakeDate"))}</label>
             <input class="input" type="date" id="f-wake-date" value="${escapeHtml(wakeDate)}"
-                   max="${escapeHtml(shiftIso(sleepDate, 1))}" style="max-width:190px" />
-            <span class="tiny muted">${escapeHtml(t("records.wakeDateHint"))}</span>
+                   max="${escapeHtml(latestWake(sleepDate))}" style="max-width:190px" />
+            <span class="tiny muted" data-wake-hint>${escapeHtml(t("records.wakeDateHint"))}</span>
           </div>
         </div>
         <div class="form-row">
@@ -849,6 +856,8 @@ async function openRecordForm(root, record = null) {
         record?.wake_date && record.wake_date !== shiftIso(record.record_date, 1)
       );
       let mealTouched = Boolean(record?.meal_date);
+      // 程序替用户改日期时不要把 wakeTouched 置真，否则后面就不再自动跟随了
+      let syncingWake = false;
 
       // 入睡与起床同一天 = 凌晨睡的那一觉，默认把三餐记到前一天，并明示可以改
       const syncMeal = () => {
@@ -865,16 +874,58 @@ async function openRecordForm(root, record = null) {
         mealTouched = true;
         loadMeals();
       });
+      const wakeHint = qs("[data-wake-hint]", modal);
+      // 程序改完日期闪一下，别让按钮上的数字悄悄变
+      const flashField = (input) => {
+        const field = input?.closest(".date-field");
+        if (!field) return;
+        field.classList.remove("is-flash");
+        void field.offsetWidth;
+        field.classList.add("is-flash");
+        window.setTimeout(() => field.classList.remove("is-flash"), 900);
+      };
+      const setWakeHint = (note) => {
+        if (wakeHint) wakeHint.textContent = note || t("records.wakeDateHint");
+      };
+      // 写值 + 广播 input：日期控件靠 input 事件刷新按钮上的文字
+      const applyWakeDate = (iso, note) => {
+        wakeInput.max = latestWake(sleepInput.value);
+        // 日期真的变了才闪一下；没变也要写说明，免得用户以为没有限制
+        if (wakeInput.value !== iso) {
+          syncingWake = true;
+          wakeInput.value = iso;
+          wakeInput.dispatchEvent(new Event("input", { bubbles: true }));
+          syncingWake = false;
+          flashField(wakeInput);
+        }
+        setWakeHint(note);
+      };
       const syncWake = () => {
-        wakeInput.max = shiftIso(sleepInput.value, 1);
-        if (!wakeTouched) wakeInput.value = shiftIso(sleepInput.value, 1);
+        if (!sleepInput.value) return;
+        const upper = latestWake(sleepInput.value);
+        wakeInput.max = upper;
+        // 没手动改过，或者旧值已经越过上限（比如入睡改到了今天），都跟着走
+        if (!wakeTouched || wakeInput.value > upper) {
+          const clamped = upper < shiftIso(sleepInput.value, 1);
+          applyWakeDate(
+            upper,
+            t(clamped ? "records.wakeClampToday" : "records.wakeFollowed", { date: upper })
+          );
+        }
         syncMeal();
         loadMeals();
       };
+      // 老记录可能存着"明天的起床日"，打开就夹回今天并说明
+      if (wakeInput.value > maxDate) {
+        applyWakeDate(maxDate, t("records.wakeClampToday"));
+        wakeTouched = true;
+      }
       sleepInput.addEventListener("change", syncWake);
       sleepInput.addEventListener("input", syncWake);
       wakeInput.addEventListener("input", () => {
+        if (syncingWake) return;
         wakeTouched = true;
+        setWakeHint("");
       });
 
       collector = () => ({
@@ -920,6 +971,7 @@ async function openRecordForm(root, record = null) {
         const payload = collector();
         if (!payload.sleep_time || !payload.wake_time) return showError(t("error.invalid_time"));
         if (!payload.record_date || !payload.wake_date) return showError(t("error.invalid_date"));
+        if (payload.wake_date > maxDate) return showError(t("error.wake_date_in_future"));
         const dayGap =
           payload.wake_date === payload.record_date
             ? 0

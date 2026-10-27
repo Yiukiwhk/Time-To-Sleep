@@ -732,6 +732,27 @@ def test_wake_date_range_and_order_are_validated(client: TestClient) -> None:
     assert same_times.json()["code"] == "error.invalid_time_range"
 
 
+def test_wake_date_cannot_be_tomorrow_even_if_sleeping_today(
+    client: TestClient,
+) -> None:
+    """起床日最晚到今天：入睡日选今天时，起床日也不能顺延到明天。"""
+    username = "wakefuture"
+    _make_user(username, target=("23:00", "07:00"))
+    _login(client, username)
+
+    body = client.post(
+        "/api/records",
+        json={
+            "record_date": TODAY.isoformat(),
+            "wake_date": (TODAY + timedelta(days=1)).isoformat(),
+            "sleep_time": "23:30",
+            "wake_time": "07:30",
+        },
+    )
+    assert body.status_code == 400
+    assert body.json()["code"] == "error.wake_date_in_future"
+
+
 def test_overlapping_record_returns_400_with_context(client: TestClient) -> None:
     """时间重叠要回 400 + error.overlapping_record，并把重叠的那段一起带回来。
 
@@ -785,24 +806,17 @@ def test_meals_belong_to_the_meal_date(client: TestClient) -> None:
     assert days[TODAY.isoformat()]["lunch"]["state"] == "unknown"
 
 def test_checkin_writes_back_to_the_meal_day_record(client: TestClient) -> None:
-    """打卡回写落在「三餐所属日」（meal_date）那条记录上，不是起床日那条。"""
+    """打卡回写落在「三餐所属日」（meal_date）那条记录上，不是起床日那条。
+
+    起床日最晚到今天，所以这里用「昨天的那一夜」当被打卡的那天，并把 date 显式传给打卡接口。
+    """
     username = "wakeback"
     _make_user(username, target=("23:00", "07:00"))
     _login(client, username)
-    tomorrow = (TODAY + timedelta(days=1)).isoformat()
     yesterday = (TODAY - timedelta(days=1)).isoformat()
-    # 今天这一夜：入睡日=今天、起床日=明天 → 三餐记录属于今天
+    day_before = (TODAY - timedelta(days=2)).isoformat()
+    # 昨晚这一夜：入睡日=昨天、起床日=今天 → 三餐记录属于昨天
     record_id = client.post(
-        "/api/records",
-        json={
-            "record_date": TODAY.isoformat(),
-            "wake_date": tomorrow,
-            "sleep_time": "23:30",
-            "wake_time": "07:30",
-        },
-    ).json()["id"]
-    # 昨晚那一夜：入睡日=昨天、起床日=今天 → 三餐记录属于昨天，今天的打卡不该动它
-    other_id = client.post(
         "/api/records",
         json={
             "record_date": yesterday,
@@ -811,16 +825,46 @@ def test_checkin_writes_back_to_the_meal_day_record(client: TestClient) -> None:
             "wake_time": "07:30",
         },
     ).json()["id"]
+    # 前天那一夜：入睡日=前天、起床日=昨天 → 三餐记录属于前天，昨天的打卡不该动它
+    other_id = client.post(
+        "/api/records",
+        json={
+            "record_date": day_before,
+            "wake_date": yesterday,
+            "sleep_time": "23:30",
+            "wake_time": "07:30",
+        },
+    ).json()["id"]
 
-    body = client.post("/api/advice/checkin", json={"meal": "breakfast", "eaten": False}).json()
+    body = client.post(
+        "/api/advice/checkin",
+        json={"meal": "breakfast", "eaten": False, "date": yesterday},
+    ).json()
     assert body["ok"] is True
 
     rows = {item["id"]: item for item in client.get("/api/records").json()["items"]}
     assert rows[record_id]["meal_breakfast"] is False
-    assert rows[record_id]["meal_date"] == TODAY.isoformat()
+    assert rows[record_id]["meal_date"] == yesterday
     assert rows[other_id]["meal_breakfast"] is True
-    assert rows[other_id]["meal_date"] == yesterday
+    assert rows[other_id]["meal_date"] == day_before
 
+
+def test_derived_wake_date_cannot_be_tomorrow_either(client: TestClient) -> None:
+    """没传起床日时后端会自己推导，但推导结果同样不能落到明天。"""
+    username = "wakederived"
+    _make_user(username, target=("23:00", "07:00"))
+    _login(client, username)
+
+    body = client.post(
+        "/api/records",
+        json={
+            "record_date": TODAY.isoformat(),
+            "sleep_time": "22:45",
+            "wake_time": "06:45",
+        },
+    )
+    assert body.status_code == 400
+    assert body.json()["code"] == "error.wake_date_in_future"
 
 def test_meal_date_defaults_from_the_wake_date(client: TestClient) -> None:
     """三餐日期：跨夜记录=入睡日；同日入睡（凌晨）时=入睡日−1；显式传就照传（限相邻两天）。"""
