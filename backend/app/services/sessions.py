@@ -55,7 +55,18 @@ def create_session(
             session.flush()
 
     run_with_retry(_write, label="create_session")
-    set_session_cookie(response, token, scope=scope, remember=remember, expires_at=expires_at)
+    # 域名走 HTTPS 时给 Cookie 加 Secure，IP 直连（HTTP）时不加，否则 IP 入口登录不上。
+    # 前面是 nginx，原始协议只能从它写的 X-Forwarded-Proto 里读。
+    forwarded = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    scheme = forwarded or request.url.scheme
+    set_session_cookie(
+        response,
+        token,
+        scope=scope,
+        remember=remember,
+        expires_at=expires_at,
+        secure=(scheme == "https"),
+    )
     return token
 
 
@@ -66,6 +77,7 @@ def set_session_cookie(
     scope: str,
     remember: bool,
     expires_at: datetime,
+    secure: bool = False,
 ) -> None:
     max_age = max(0, int((expires_at - utcnow()).total_seconds()))
     # 库里统一存 naive UTC；Starlette 的 usegmt 要求带时区，这里显式补上 UTC
@@ -81,7 +93,7 @@ def set_session_cookie(
         path="/",
         httponly=True,
         samesite="lax",
-        secure=False,   # 需求：HTTP + IP 直连部署，故不启用 Secure
+        secure=secure,  # 只有 HTTPS（域名）时才带；IP 直连是 HTTP，带 Secure 会登不上
     )
 
 

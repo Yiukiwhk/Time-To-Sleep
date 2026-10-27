@@ -520,6 +520,11 @@ grep_absent "user shell: emoji logo gone" "$WEBROOT/user/index.html" 'auth-logo"
 grep_absent "admin shell: emoji logo gone" "$WEBROOT/admin/index.html" 'auth-logo">🛡'
 grep_absent "user shell: emoji nav gone" "$WEBROOT/user/index.html" '📋'
 
+echo "== 4ac. the vhost knows yiuki.me and keeps the ACME webroot =="
+grep_file "vhost: domain in server_name" "$VHOST" 'server_name _ yiuki.me www.yiuki.me;'
+grep_file "vhost: acme location" "$VHOST" 'location ^~ /.well-known/acme-challenge/ {'
+grep_file "vhost: acme webroot" "$VHOST" 'root /var/www/certbot;'
+
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"
 else

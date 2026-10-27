@@ -382,4 +382,30 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
   一团，所以换成了灯泡。
 - 想确认线上真的换了：`4ab` 用 `grep_file` 守着 `icons.js` / `data-icon` / `.admin-shell .nav-item`，
   再用 `grep_absent` 确认两个入口的 emoji logo 和旧导航 emoji 已经不在。
+## 域名与 HTTPS：yiuki.me（2026-10 起）
 
+- 域名在阿里云，解析 `@` 和 `www` 都指到 39.106.196.92（NS 是 dns7/dns8.hichina.com）。
+  **备案（ICP）没通过前，阿里云会按 Host 在边缘直接返回 `403 Non-compliance ICP Filing`**，
+  请求根本到不了 nginx；这个拦截不分地域（境外节点测过也是 403），所以 Let's Encrypt 的
+  HTTP-01 验证也会被拦，证书只能等备案通过后再签。本机自测要用
+  `curl -H 'Host: yiuki.me' http://127.0.0.1/` 才绕过拦截。
+- `deploy/nginx-sleep-schedule.conf` 里 443/证书/跳转的行都带 `#TLS#` 前缀且是注释状态：
+  证书文件不存在时 `nginx -t` 会直接失败，配置不能提前带 443 上线。
+- 证书就位后跑一次 `sudo bash enable-tls.sh`：删掉行首的 `#TLS# `、`nginx -t`、reload，
+  最后用本机 curl 自检。脚本先备份再改，`nginx -t` 失败会自动回滚；重复执行只做校验和 reload。
+- 签发命令（备案通过后，服务器上）：
+
+  ```
+  sudo certbot certonly --webroot -w /var/www/certbot -d yiuki.me -d www.yiuki.me \
+       --deploy-hook "systemctl reload nginx"
+  ```
+
+  `location ^~ /.well-known/acme-challenge/` 必须常驻（根目录 `/var/www/certbot`），
+  自动续期（certbot.timer，每天两次）也走这个路径。
+- 跳转策略：域名一律 `301 https://yiuki.me`（www 也跳到裸域）；`$host` 是 IP 的直连入口不跳，
+  留作备用。想临时回退就把 443 那几行重新注释掉并 reload，IP 入口始终可用。
+- Cookie：`backend/app/services/sessions.py` 按 `X-Forwarded-Proto` 决定是否加 `Secure`
+  —— HTTPS 加、HTTP 不加，否则 IP 直连会登录不上。nginx 的 `/api/` 已经带
+  `proxy_set_header X-Forwarded-Proto $scheme;`。
+- 备案下来后补两件事：页脚加备案号并链到 `https://beian.miit.gov.cn/`（阿里云会抽查），
+  以及确认 80 端口只剩 301（`curl -I -H 'Host: yiuki.me' http://yiuki.me/`）。

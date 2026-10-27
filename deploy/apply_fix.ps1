@@ -121,6 +121,7 @@ foreach ($rel in $backendFiles) {
 Copy-Item -LiteralPath (Join-Path $root "deploy\nginx-sleep-schedule.conf") -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root "deploy\remote_apply_fix.sh") -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root "deploy\schema_check.py") -Destination $stage
+Copy-Item -LiteralPath (Join-Path $root "deploy\enable-tls.sh") -Destination $stage
 Get-ChildItem -Path $stage -Recurse -Include "__pycache__" -Directory | Remove-Item -Recurse -Force
 Write-Host ("staged: " + (Get-ChildItem -Path $stage -Recurse -File).Count + " files")
 
@@ -131,7 +132,7 @@ if ($LASTEXITCODE -ne 0) { throw "ssh pre-clean failed" }
 if ($LASTEXITCODE -ne 0) { throw "scp frontend failed" }
 & scp @scpCommon -r (Join-Path $stage "backend") "${target}:/tmp/sleep-fix/"
 if ($LASTEXITCODE -ne 0) { throw "scp backend failed" }
-foreach ($f in @("nginx-sleep-schedule.conf", "remote_apply_fix.sh", "schema_check.py")) {
+foreach ($f in @("nginx-sleep-schedule.conf", "remote_apply_fix.sh", "schema_check.py", "enable-tls.sh")) {
     & scp @scpCommon (Join-Path $stage $f) "${target}:/tmp/sleep-fix/"
     if ($LASTEXITCODE -ne 0) { throw "scp $f failed" }
 }
