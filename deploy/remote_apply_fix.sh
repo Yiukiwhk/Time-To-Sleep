@@ -57,7 +57,7 @@ fi
 # Python modules shipped by a release: the adaptive-v2 advice engine, the auth
 # guard (login-failure warning), the records cooldown and the config defaults.
 # Must stay in sync with $backendFiles in deploy/apply_fix.ps1.
-BACKEND_FILES="app/api/admin.py app/api/advice.py app/api/auth.py app/api/records.py app/config.py app/core/timing.py app/db.py app/models.py app/schemas.py app/services/advice.py app/services/advice_plan.py app/services/auth_service.py"
+BACKEND_FILES="app/api/admin.py app/api/advice.py app/api/auth.py app/api/records.py app/config.py app/core/timing.py app/db.py app/models.py app/schemas.py app/services/advice.py app/services/advice_plan.py app/services/auth_service.py app/services/sessions.py"
 
 echo "== 2b. backend code =="
 BACKEND_BACKUP=/tmp/sleep-backend-backup
@@ -521,9 +521,11 @@ grep_absent "admin shell: emoji logo gone" "$WEBROOT/admin/index.html" 'auth-log
 grep_absent "user shell: emoji nav gone" "$WEBROOT/user/index.html" '📋'
 
 echo "== 4ac. the vhost knows yiuki.me and keeps the ACME webroot =="
-grep_file "vhost: domain in server_name" "$VHOST" 'server_name _ yiuki.me www.yiuki.me;'
+grep_file "vhost: domain in server_name" "$VHOST" 'server_name yiuki.me www.yiuki.me;'
+grep_file "vhost: tls scaffolding present" "$VHOST" '#TLS# listen 443 ssl http2;'
 grep_file "vhost: acme location" "$VHOST" 'location ^~ /.well-known/acme-challenge/ {'
 grep_file "vhost: acme webroot" "$VHOST" 'root /var/www/certbot;'
+grep_file "sessions: secure cookie only on https" "$APP_DIR/backend/app/services/sessions.py" 'secure=(scheme =='
 
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"

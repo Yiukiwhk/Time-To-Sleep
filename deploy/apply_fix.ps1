@@ -79,7 +79,8 @@ $backendFiles = @(
     "app\schemas.py",
     "app\services\advice.py",
     "app\services\advice_plan.py",
-    "app\services\auth_service.py"
+    "app\services\auth_service.py",
+    "app\services\sessions.py"
 )
 
 $askpass = Join-Path $env:TEMP "dsh_askpass.bat"

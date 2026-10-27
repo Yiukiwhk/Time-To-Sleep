@@ -402,8 +402,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 
   `location ^~ /.well-known/acme-challenge/` 必须常驻（根目录 `/var/www/certbot`），
   自动续期（certbot.timer，每天两次）也走这个路径。
-- 跳转策略：域名一律 `301 https://yiuki.me`（www 也跳到裸域）；`$host` 是 IP 的直连入口不跳，
-  留作备用。想临时回退就把 443 那几行重新注释掉并 reload，IP 入口始终可用。
+- 跳转策略：域名一律 `301 https://yiuki.me`（www 也跳到裸域）。80 上的域名由文件末尾
+  单独那个 `#TLS# server` 块跳转（它在 80 上按 `server_name` 命中，443 上根本不会进），
+  主块里只剩一条针对 `www` 的 443 跳转，所以不会出现"https 跳 https"的死循环；
+  `$host` 是 IP 的直连入口不跳，留作备用。想临时回退就把 443 那几行重新注释掉并 reload，
+  IP 入口始终可用。
 - Cookie：`backend/app/services/sessions.py` 按 `X-Forwarded-Proto` 决定是否加 `Secure`
   —— HTTPS 加、HTTP 不加，否则 IP 直连会登录不上。nginx 的 `/api/` 已经带
   `proxy_set_header X-Forwarded-Proto $scheme;`。
