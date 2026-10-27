@@ -294,12 +294,20 @@ table.table td.actions { white-space: nowrap; text-align: right; }
 .modal {
   width: min(560px, 100%);
   max-height: 88vh;
-  overflow-y: auto;
+  /* 弹窗自己是竖向 flex：正文滚动、底栏常驻，手机上"保存"不用滚到最下面才够得着（modal: scroll body, pinned foot） */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   padding: 20px;
+}
+.modal > [data-role="body"] {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 .modal h2 { margin-bottom: 4px; }
 .modal-foot {
@@ -307,6 +315,7 @@ table.table td.actions { white-space: nowrap; text-align: right; }
   justify-content: flex-end;
   gap: 10px;
   margin-top: 18px;
+  flex: none;
 }
 
 .inline-error {

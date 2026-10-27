@@ -732,6 +732,35 @@ def test_wake_date_range_and_order_are_validated(client: TestClient) -> None:
     assert same_times.json()["code"] == "error.invalid_time_range"
 
 
+def test_overlapping_record_returns_400_with_context(client: TestClient) -> None:
+    """时间重叠要回 400 + error.overlapping_record，并把重叠的那段一起带回来。
+
+    回归：曾经把 date/sleep_time/wake_time 当关键字参数传给 ApiError（它只收 extra 字典），
+    直接 TypeError 变成 500，前端只能看到"服务器错误"。
+    """
+    username = "overlap"
+    _make_user(username, target=("23:00", "07:00"))
+    _login(client, username)
+    day = (TODAY - timedelta(days=2)).isoformat()
+
+    first = client.post(
+        "/api/records",
+        json={"record_date": day, "sleep_time": "22:00", "wake_time": "06:00"},
+    )
+    assert first.status_code == 201
+
+    clash = client.post(
+        "/api/records",
+        json={"record_date": day, "sleep_time": "23:00", "wake_time": "07:00"},
+    )
+    assert clash.status_code == 400
+    body = clash.json()
+    assert body["code"] == "error.overlapping_record"
+    assert body["date"] == day
+    assert body["sleep_time"] == "22:00"
+    assert body["wake_time"] == "06:00"
+
+
 def test_meals_belong_to_the_meal_date(client: TestClient) -> None:
     """记录页勾的三餐按“三餐日期”归档：跨夜那晚的三餐属于入睡日，不是起床日。"""
     username = "mealday"

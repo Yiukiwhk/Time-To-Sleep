@@ -135,13 +135,17 @@ def _check_no_overlap(
         except ValueError:                                  # 历史脏数据：跳过而不是 500
             continue
         if start < other_end and other_start < end:
+            # 带上重叠记录的日期与时段，前端 / 客户端都能直接拼提示；
+            # ApiError 只接受 extra 字典，写成关键字参数会抛 TypeError 变成 500。
             raise ApiError(
                 400,
                 "error.overlapping_record",
                 code="error.overlapping_record",
-                date=other.record_date,
-                sleep_time=other.sleep_time,
-                wake_time=other.wake_time,
+                extra={
+                    "date": other.record_date,
+                    "sleep_time": other.sleep_time,
+                    "wake_time": other.wake_time,
+                },
             )
 
 

@@ -415,3 +415,32 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
   和演练脚本都先 sleep 2 再自检。
 - 备案下来后补两件事：页脚加备案号并链到 `https://beian.miit.gov.cn/`（阿里云会抽查），
   以及确认 80 端口只剩 301（`curl -I -H 'Host: yiuki.me' http://yiuki.me/`）。
+
+## 手机端（≤620px）与 320px 窄屏
+
+- 断点分工：`@media (max-width: 900px)` 只把侧栏收成抽屉（平板也吃这一档）；
+  `@media (max-width: 620px)` 才是手机真正吃到的排版；`@media (max-width: 380px)`
+  兜 320px 这类窄屏。
+- 弹窗在手机上变成贴底抽屉：`frontend/shared/base.css` 把 `.modal` 做成竖向 flex，
+  正文 `[data-role="body"]` 自己滚、`.modal-foot` 不缩；`frontend/user/css/app.css`
+  的 ≤620 段再把它靠底、只留上方圆角、底栏摊满并补 `safe-area-inset-bottom`。
+- 记录表单的"保存"不在正文里：`frontend/user/js/pages/records.js` 的 `onMount`
+  把它挪进 `.modal-foot` 与"取消"并排（手机上底栏常驻，不用滚到表单末尾再往回找；
+  桌面也顺手统一成一行按钮）。发布自检的锚点是 `foot.appendChild(saveButton)`。
+- 输入框在 ≤620 统一 16px：iOS 对字号 <16px 的输入框聚焦时会缩放整页。
+- 手指目标：`.btn / .segment-btn / .nav-item / .icon-btn` 至少 40px，`.icon-btn` 42×42。
+- 320px：记录卡的日期行、时长改用 `nowrap`，"8h 00m" 不再从中间折行；建议页
+  "今天"的三块固定两列、第三块通栏。
+- 自查工具：`node .tmp/shot.js <route> <宽> <高> <输出.png> [0|1 整页] <用户> <密码> [动作JS|@文件]`，
+  走 CDP 的 `Emulation.setDeviceMetricsOverride`，能真出 320/360/390 的视口
+  （Edge 的 `--window-size` 有 ~500px 下限，别拿它当手机截图）。
+  判定溢出看它打印的 `sw`（文档宽度）是否等于视口宽，而不是靠眼睛。
+
+## 记录重叠：报错要带上下文
+
+`backend/app/api/records.py` 的 `_check_no_overlap` 在撞车时抛
+`ApiError(400, "error.overlapping_record", code=..., extra={...})`，`extra` 里放
+`date / sleep_time / wake_time`，前端才能提示"是哪一天、几点到几点重了"。
+`ApiError.__init__(status_code, detail, *, code=None, extra=None)` 只收 `extra` 字典，
+直接把字段当关键字参数传会 `TypeError`（500）。回归测试：
+`tests/test_advice_engine.py::test_overlapping_record_returns_400_with_context`。

@@ -1217,3 +1217,81 @@ input[type="date"]:focus::-webkit-calendar-picker-indicator { opacity: 1; }
 .dp-day.is-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
 .dp-day.is-today { box-shadow: inset 0 0 0 1px var(--accent); }
 .dp-day.is-disabled { color: var(--text-soft); opacity: 0.35; cursor: not-allowed; }
+
+/* ------------------------------ 手机（≤620px） ------------------------------ */
+/* 这一档才是手机真正吃到的排版：弹窗变成贴底抽屉、手指目标放大、原生日期筛选独占一行。
+   320px 的窄屏也落在这一档里，所以尺寸都用 min()/百分比，不写死。 */
+@media (max-width: 620px) {
+  .app-shell { min-height: 100dvh; }
+
+  .sidebar {
+    width: min(320px, 86vw);
+    height: 100dvh;
+    padding-top: calc(18px + env(safe-area-inset-top));
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+
+  .topbar { padding: calc(10px + env(safe-area-inset-top)) 12px 10px; }
+  .page { padding: 14px 12px calc(28px + env(safe-area-inset-bottom)); }
+  .page-foot { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+
+  /* 弹窗：贴底的抽屉。长表单在抽屉里滚动，保存/取消钉在底部，不用滚到屏幕外去找。 */
+  .modal-host { align-items: flex-end; padding: 0; }
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: 92dvh;
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+    padding: 18px 14px 0;
+  }
+  /* base.css 把弹窗做成竖向 flex，正文滚动、底栏天然常驻，这里只要把它摊满整行 */
+  .modal .modal-foot {
+    margin-top: 14px;
+    margin-inline: -14px;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: var(--bg-elevated);
+  }
+  .modal .modal-foot .btn { flex: 1; }
+  .modal > [data-role="body"] { padding-bottom: 8px; }
+
+  /* iOS 对字号 <16px 的输入框会在聚焦时放大整页（手机上"点一下页面就变大"的原因） */
+  .input,
+  textarea,
+  select,
+  .date-field-btn,
+  .dp-title { font-size: 16px; }
+
+  /* 手指目标：主要控件不低于 40px */
+  .btn,
+  .segment-btn,
+  .nav-item,
+  .icon-btn { min-height: 40px; }
+  .icon-btn { width: 42px; height: 42px; }
+  .segment-btn { padding: 8px 16px; }
+  .nav-item { padding: 11px 12px; }
+
+  /* 记录页的原生日期筛选：日期各占一行，搜索/重置两人一行 */
+  .toolbar { flex-wrap: wrap; row-gap: 8px; }
+  .toolbar .field { flex: 1 1 100%; min-width: 0; }
+  .toolbar .btn { flex: 1 1 calc(50% - 5px); }
+  .toolbar .grow { display: none; }
+  .toolbar #records-total { flex: 1 1 100%; text-align: right; }
+
+  /* 日期弹层别超出屏幕 */
+  .dp { max-width: calc(100vw - 24px); }
+
+  /* 建议页"今天"的三块：固定两列 + 第三块通栏，别让第三块孤零零缩在一列里换行 */
+  .advice-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .advice-summary .summary-cell:last-child { grid-column: 1 / -1; }
+  .summary-line { flex-wrap: wrap; }
+}
+
+/* 320px 这类窄屏：记录卡顶部的日期和时长别折行，宁可字号小一号 */
+@media (max-width: 380px) {
+  .record-card .rc-head .mono { font-size: 12px; letter-spacing: -0.02em; white-space: nowrap; }
+  .record-card .rc-times { flex-wrap: wrap; gap: 6px 10px; font-size: 15px; }
+  .record-card .rc-times > span { white-space: nowrap; }
+  .record-card .rc-times .badge { flex: none; white-space: nowrap; margin-left: auto; }
+}

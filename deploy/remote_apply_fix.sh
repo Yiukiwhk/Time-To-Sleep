@@ -527,6 +527,14 @@ grep_file "vhost: acme location" "$VHOST" 'location ^~ /.well-known/acme-challen
 grep_file "vhost: acme webroot" "$VHOST" 'root /var/www/certbot;'
 grep_file "sessions: secure cookie only on https" "$APP_DIR/backend/app/services/sessions.py" 'secure=(scheme =='
 
+echo "== 4ad. phones get a bottom sheet, and a reused slot reports its context =="
+grep_file "base.css: the modal scrolls its body" "$WEBROOT/shared/base.css" 'modal: scroll body, pinned foot'
+grep_file "base.css: the foot never shrinks" "$WEBROOT/shared/base.css" '.modal-foot {'
+grep_file "app.css: the phone breakpoint exists" "$WEBROOT/user/css/app.css" 'max-width: 620px'
+grep_file "app.css: the 320px card rules exist" "$WEBROOT/user/css/app.css" 'max-width: 380px'
+grep_file "records.js: save button moves into the foot" "$WEBROOT/user/js/pages/records.js" 'foot.appendChild(saveButton)'
+grep_file "records.py: overlap errors carry the date" "$APP_DIR/backend/app/api/records.py" '"sleep_time": other.sleep_time'
+
 if [ "$fail" -eq 0 ]; then
     echo "fix applied: OK"
 else

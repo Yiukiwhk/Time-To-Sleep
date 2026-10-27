@@ -783,6 +783,15 @@ async function openRecordForm(root, record = null) {
       </div>`,
     onMount: (modal, close) => {
       enhanceDateInputs(modal);
+
+      // 保存按钮挪到底栏、和"取消"并排：底栏常驻，手机上不用滚到表单末尾才够得着。
+      const foot = modal.querySelector(".modal-foot");
+      const saveButton = qs("[data-save]", modal);
+      if (foot && saveButton) {
+        const saveRow = saveButton.closest(".row-wrap");
+        foot.appendChild(saveButton);
+        if (saveRow && !saveRow.querySelector("button")) saveRow.remove();
+      }
       const sleepPicker = createTimePicker(qs("#f-sleep", modal), { value: record?.sleep_time || "23:30" });
       const wakePicker = createTimePicker(qs("#f-wake", modal), { value: record?.wake_time || "07:30" });
       const breakfast = qs("#f-breakfast", modal);
