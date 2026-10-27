@@ -59,6 +59,8 @@ if ! nginx -t; then
 fi
 
 systemctl reload nginx
+# reload 是优雅重启：旧 worker 会短暂继续用旧配置，立刻验证可能拿到 302/旧行为
+sleep 2
 echo "== 已启用 HTTPS"
 
 echo "== 本地自检（绕过备案拦截，直接问 127.0.0.1）："

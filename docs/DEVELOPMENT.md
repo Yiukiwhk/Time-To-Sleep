@@ -410,5 +410,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\deploy\accept_local.ps
 - Cookie：`backend/app/services/sessions.py` 按 `X-Forwarded-Proto` 决定是否加 `Secure`
   —— HTTPS 加、HTTP 不加，否则 IP 直连会登录不上。nginx 的 `/api/` 已经带
   `proxy_set_header X-Forwarded-Proto $scheme;`。
+- 验证时注意：systemctl reload nginx 是优雅重启，旧 worker 会短暂继续用旧配置，
+  刚 reload 完立刻 curl 可能还是旧行为（本地演练里就出现过一次 302）。enable-tls.sh
+  和演练脚本都先 sleep 2 再自检。
 - 备案下来后补两件事：页脚加备案号并链到 `https://beian.miit.gov.cn/`（阿里云会抽查），
   以及确认 80 端口只剩 301（`curl -I -H 'Host: yiuki.me' http://yiuki.me/`）。
